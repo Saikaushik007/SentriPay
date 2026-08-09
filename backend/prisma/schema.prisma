@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Transaction {
+  id           String   @id @default(uuid())
+  amount       Float
+  merchant     String
+  agentId      String
+  status       String   // 'APPROVED', 'BLOCKED', 'FLAGGED'
+  reason       String
+  riskScore    Int?
+  settlementId String?  // Set on APPROVED transactions
+  createdAt    DateTime @default(now())
+}
+
+model PolicyConfig {
+  id             String   @id @default(uuid())
+  maxTxLimit     Float    @default(1000)
+  dailyBudget    Float    @default(500)
+  denylist       String[] @default([])
+  allowlistMode  Boolean  @default(false)
+  allowlist      String[] @default([])
+  maxRiskScore   Int      @default(80)
+  updatedAt      DateTime @updatedAt
+}
+
+model PolicyHistory {
+  id          String   @id @default(uuid())
+  action      String   // e.g. "UPDATED_LIMIT", "ADDED_MERCHANT_TO_DENYLIST"
+  detail      String   // e.g. "Changed Max Tx Limit from $1000 to $5000"
+  createdAt   DateTime @default(now())
+}
