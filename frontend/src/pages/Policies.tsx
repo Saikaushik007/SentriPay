@@ -379,8 +379,8 @@ export default function Policies() {
       </div>
 
       {/* ── Audit Trail Timeline ─────────────────────────────── */}
-      <div className="bg-white rounded-3xl overflow-hidden mb-12"
-        style={{ border: '1px solid #E4E4E7', boxShadow: '0 2px 16px -2px rgba(0,0,0,0.07)' }}>
+       <div className="rounded-3xl overflow-hidden mb-12"
+         style={{ background: 'linear-gradient(135deg,#F5F3FF,#FFFFFF)', border: '1px solid #DDD6FE', boxShadow: '0 12px 30px -18px rgba(124,58,237,.32)' }}>
         <div className="p-6 border-b flex items-center gap-3" style={{ borderColor: '#E4E4E7', background: '#FAFAFA' }}>
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#F4F4F5', color: '#71717A' }}>
             <Clock size={20} />

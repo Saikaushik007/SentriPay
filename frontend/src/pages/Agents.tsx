@@ -172,7 +172,7 @@ export default function Agents() {
           <p className="text-sm text-gray-400">Is the backend running on port 3001?</p>
         </div>
       ) : agents.length === 0 ? (
-        <div className="flex flex-col items-center py-24 gap-5" style={{ background: 'white', borderRadius: '1.5rem', border: '1px solid #E4E4E7' }}>
+        <div className="flex flex-col items-center py-24 gap-5" style={{ background: 'linear-gradient(135deg,#F0F9FF,#F0FDF4)', borderRadius: '1.5rem', border: '1px solid #BAE6FD', boxShadow: '0 16px 36px -24px rgba(14,165,233,.45)' }}>
           <div className="w-20 h-20 rounded-2xl flex items-center justify-center" style={{ background: '#EEF2FF' }}>
             <Bot size={40} className="text-indigo-400" />
           </div>
@@ -237,7 +237,7 @@ export default function Agents() {
                   {/* Metrics row */}
                   <div className="grid grid-cols-2 gap-3 mb-5">
                     {/* Spend */}
-                    <div className="rounded-2xl p-4" style={{ background: 'white', border: `1px solid ${color}15`, boxShadow: `0 2px 8px -2px ${color}10` }}>
+                    <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(135deg,#FFFFFF,#F0FDF4)', border: `1px solid ${color}25`, boxShadow: `0 8px 18px -12px ${color}55` }}>
                       <div className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: '#71717A' }}>Cleared Spend</div>
                       <div className="flex items-center gap-1 font-mono font-bold text-lg" style={{ color: '#18181B' }}>
                         <span style={{ color: '#71717A', fontSize: 14 }}>$</span>
@@ -246,7 +246,7 @@ export default function Agents() {
                     </div>
 
                     {/* Approval donut */}
-                    <div className="rounded-2xl p-3 flex items-center gap-3" style={{ background: 'white', border: `1px solid ${color}15`, boxShadow: `0 2px 8px -2px ${color}10` }}>
+                    <div className="rounded-2xl p-3 flex items-center gap-3" style={{ background: 'linear-gradient(135deg,#FFFFFF,#EEF2FF)', border: `1px solid ${color}25`, boxShadow: `0 8px 18px -12px ${color}55` }}>
                       <ApprovalDonut rate={rate} color={color} />
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: '#71717A' }}>Approval</div>
