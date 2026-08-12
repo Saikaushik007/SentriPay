@@ -2,6 +2,7 @@ services:
   - type: web
     name: sentripay-backend
     runtime: node
+    plan: free
     rootDir: agent-spend-policy-guard/backend
     buildCommand: npm run build
     startCommand: npm start
