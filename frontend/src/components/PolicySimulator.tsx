@@ -4,6 +4,7 @@ import {
   Sparkles, Play, CheckCircle2, XCircle, AlertTriangle, 
   ShieldCheck, Bot, Store, DollarSign, RefreshCw 
 } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 interface RuleEvaluation {
   rule: string;
@@ -40,7 +41,7 @@ export default function PolicySimulator() {
   const [availableAgents, setAvailableAgents] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    fetch('/api/agents')
+    fetch(apiUrl('/api/agents'))
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
@@ -77,7 +78,7 @@ export default function PolicySimulator() {
     setError(null);
 
     try {
-      const res = await fetch('/api/simulate', {
+      const res = await fetch(apiUrl('/api/simulate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

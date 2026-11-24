@@ -1,18 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
-import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, ShieldAlert, Activity, DollarSign, Clock, Cpu, Banknote, Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2, CalendarRange, AlertTriangle } from 'lucide-react';
 import TransactionDrawer from '../components/TransactionDrawer';
-import ScenariosPanel from '../components/ScenariosPanel';
+import DemoControlsPanel from '../components/DemoControlsPanel';
 import ReviewQueue from '../components/ReviewQueue';
+import { apiUrl, socket } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer
 } from 'recharts';
-
-const API_URL = import.meta.env.VITE_BACKEND_URL || '';
-const api = (path: string) => `${API_URL}${path}`;
-const socket = io(API_URL || '/');
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function Toast({ msg, visible }: { msg: string; visible: boolean }) {
@@ -50,10 +46,6 @@ export default function Dashboard() {
   const [budget, setBudget] = useState<BudgetInfo | null>(null);
   const [insights, setInsights] = useState<InsightInfo | null>(null);
 
-  // Reset state
-  const [isResetting, setIsResetting] = useState(false);
-  const [resetDone, setResetDone] = useState(false);
-
   // Live tracking — IDs that arrived via websocket (not pre-seeded)
   const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState(false);
@@ -65,15 +57,27 @@ export default function Dashboard() {
   const [filterMerchant, setFilterMerchant] = useState('');
   const [filterMin, setFilterMin] = useState('');
   const [filterMax, setFilterMax] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const fetchAll = () => {
-    fetch(api('/api/transactions')).then(r => r.json()).then(setTransactions).catch(console.error);
-    fetch(api('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
-    fetch(api('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
-    fetch(api('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
-    fetch(api('/api/insights')).then(r => r.json()).then(setInsights).catch(console.error);
+  const fetchAll = async () => {
+    setFetchError(null);
+    try {
+      await Promise.all([
+        fetch(apiUrl('/api/transactions')).then(r => r.json()).then(setTransactions),
+        fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData),
+        fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants),
+        fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget),
+        fetch(apiUrl('/api/insights')).then(r => r.json()).then(setInsights)
+      ]);
+    } catch (err: any) {
+      console.error(err);
+      setFetchError(err?.message || 'Failed to fetch dashboard data');
+    } finally {
+      setIsLoading(false);
+    }
   };
-  const refreshAnomalies = () => fetch(api('/api/anomalies')).then(r => r.json()).then(data => setAnomalies(data.alerts || [])).catch(console.error);
+  const refreshAnomalies = () => fetch(apiUrl('/api/anomalies')).then(r => r.json()).then(data => setAnomalies(data.alerts || [])).catch(console.error);
 
   useEffect(() => {
     fetchAll();
@@ -81,18 +85,18 @@ export default function Dashboard() {
     const onNewTx = (tx: Transaction) => {
       setTransactions(prev => [tx, ...prev].slice(0, 150));
       setLiveIds(prev => new Set([...prev, tx.id]));
-      fetch(api('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
-      fetch(api('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
-      fetch(api('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
-      fetch(api('/api/insights')).then(r => r.json()).then(setInsights).catch(console.error);
+      fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
+      fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
+      fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
+      fetch(apiUrl('/api/insights')).then(r => r.json()).then(setInsights).catch(console.error);
       refreshAnomalies();
     };
     const onDemoReset = () => { fetchAll(); setLiveIds(new Set()); setToast(true); setTimeout(() => setToast(false), 3000); };
     const onTxUpdated = (updated: Transaction) => {
       setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
-      fetch(api('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
-      fetch(api('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
-      fetch(api('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
+      fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
+      fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
+      fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
     };
     socket.on('new_transaction', onNewTx);
     socket.on('demo_reset', onDemoReset);
@@ -124,30 +128,18 @@ export default function Dashboard() {
 
   const budgetPct = budget ? Math.min((budget.spent / budget.limit) * 100, 100) : 0;
 
-
-  const handleReset = async () => {
-    if (!window.confirm('Reset demo data? This will clear all transactions and re-seed 110 realistic records.')) return;
-    setIsResetting(true);
-    try {
-      await fetch(api('/api/reset-demo'), { method: 'POST' });
-      await fetchAll();
-      setResetDone(true);
-      setTimeout(() => setResetDone(false), 3000);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
   const exportTransactions = async () => {
-    const rows: Transaction[] = await fetch(api('/api/transactions/export')).then(r => r.json());
-    const header = ['id', 'createdAt', 'agentId', 'merchant', 'amount', 'status', 'riskScore', 'settlementId', 'reason'];
-    const csv = [header, ...rows.map(row => header.map(key => JSON.stringify((row as any)[key] ?? '')))].map(row => row.join(',')).join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a');
-    link.href = url; link.download = `sentripay-transactions-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
-    URL.revokeObjectURL(url);
+    try {
+      const rows: Transaction[] = await fetch(apiUrl('/api/transactions/export')).then(r => r.json());
+      const header = ['id', 'createdAt', 'agentId', 'merchant', 'amount', 'status', 'riskScore', 'settlementId', 'reason'];
+      const csv = [header, ...rows.map(row => header.map(key => JSON.stringify((row as any)[key] ?? '')))].map(row => row.join(',')).join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = `sentripay-transactions-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export failed:', e);
+    }
   };
 
   return (
@@ -155,44 +147,55 @@ export default function Dashboard() {
       <ActivityTicker transactions={transactions} />
       <AnomalyBanner alerts={anomalies.filter(alert => !dismissedAnomalies.has(alert.id))} onDismiss={id => setDismissedAnomalies(previous => new Set([...previous, id]))} />
       <Toast msg="✓ Demo data reset — 110 baseline records loaded" visible={toast} />
-      {/* Page top bar with Reset button */}
-      <div className="flex items-center justify-between mb-6">
+
+      {/* Page Top Bar */}
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="font-bold text-2xl" style={{ fontFamily: 'Outfit, sans-serif', color: '#18181B' }}>Overview</h1>
+          <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Overview</h1>
           <p className="text-sm mt-1" style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: '#7C3AED' }}>Every autonomous payment, kept intentionally in bounds.</p>
-          <p className="text-sm mt-0.5" style={{ color: '#71717A' }}>Real-time policy enforcement metrics</p>
+          <p className="text-sm mt-0.5 text-gray-500">Real-time policy enforcement metrics</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={exportTransactions} className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all" style={{ background: 'white', border: '1px solid #D8D4FE', color: '#4F46E5', boxShadow: '0 4px 14px -5px rgba(79,70,229,0.35)' }}><Download size={15} /> Export CSV</button>
-          <AnimatePresence>
-            {resetDone && (
-              <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
-                className="flex items-center gap-2 text-sm font-medium" style={{ color: '#10B981' }}>
-                <CheckCircle2 size={15} /> Demo data reset
-              </motion.div>
-            )}
-          </AnimatePresence>
           <button
-            onClick={handleReset}
-            disabled={isResetting}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-full text-white text-sm font-semibold shadow-md transition-all disabled:opacity-60"
-            style={{ background: '#18181B' }}
+            onClick={exportTransactions}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all hover:bg-violet-50 cursor-pointer"
+            style={{ background: 'white', border: '1px solid #D8D4FE', color: '#4F46E5', boxShadow: '0 4px 14px -5px rgba(79,70,229,0.35)' }}
           >
-            {isResetting
-              ? <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              : <RotateCcw size={15} className="opacity-70" />}
-            {isResetting ? 'Resetting...' : 'Reset Demo Data'}
+            <Download size={15} /> Export CSV
           </button>
         </div>
       </div>
 
+      {/* Error state with Retry */}
+      {fetchError && (
+        <div className="mb-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle size={18} /> {fetchError}
+          </div>
+          <button
+            onClick={fetchAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors"
+          >
+            <RotateCcw size={12} /> Retry
+          </button>
+        </div>
+      )}
+
       {/* Stat Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
-        <StatCard value={totalTxs} label="Total Processed" color="#4F46E5" />
-        <StatCard value={blockedTxs} label="Blocked" color="#F43F5E" />
-        <StatCard value={`${approvalRate}%`} label="Approval Rate" color="#10B981" />
-        <StatCard value={`$${dailySpend.toLocaleString(undefined,{maximumFractionDigits:0})}`} label="24h Spend" color="#7C3AED" mono />
-      </div>
+      {isLoading && transactions.length === 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8 animate-pulse">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-32 rounded-2xl bg-white/70 border border-gray-200/60" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
+          <StatCard value={totalTxs} label="Total Processed" color="#4F46E5" />
+          <StatCard value={blockedTxs} label="Blocked" color="#F43F5E" />
+          <StatCard value={`${approvalRate}%`} label="Approval Rate" color="#10B981" />
+          <StatCard value={`$${dailySpend.toLocaleString(undefined,{maximumFractionDigits:0})}`} label="24h Spend" color="#7C3AED" mono />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {/* Left: Charts + Feed */}
@@ -219,7 +222,8 @@ export default function Dashboard() {
 
           <div className="grid grid-cols-1 gap-5">
             <InsightPanel insights={insights} />
-            <ScenariosPanel onScenarioExecuted={fetchAll} />
+            {/* Unified Demo Controls & Scenarios Panel */}
+            <DemoControlsPanel onDataChanged={fetchAll} />
           </div>
 
           {/* Traffic Volume Chart */}
@@ -344,23 +348,32 @@ export default function Dashboard() {
                   const isLive = liveIds.has(tx.id);
                   return (
                     <motion.div key={tx.id}
-                      initial={{ opacity: 0, y: -8, backgroundColor: isLive ? 'rgba(79,70,229,0.07)' : 'rgba(255,255,255,0)' }}
-                      animate={{ opacity: 1, y: 0, backgroundColor: 'rgba(255,255,255,0)' }}
+                      initial={{ opacity: 0, scale: isLive ? 1.03 : 1, y: -8, backgroundColor: isLive ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0)' }}
+                      animate={{ opacity: 1, scale: 1, y: 0, backgroundColor: 'rgba(255,255,255,0)' }}
                       exit={{ opacity: 0 }}
-                      transition={{ duration: 0.4 }}
+                      transition={{ duration: 0.35 }}
                       onClick={() => setSelectedTx(tx)}
                       title="Click to view decision explainer & policy rules"
                       className="grid grid-cols-12 gap-2 px-3 py-3 items-center rounded-xl hover:bg-violet-50/70 hover:shadow-sm cursor-pointer transition-all"
-                      style={{ borderBottom: '1px solid #F4F4F5' }}>
-                      {/* Live pulse dot */}
+                      style={{
+                        borderBottom: '1px solid #F4F4F5',
+                        borderLeft: isLive ? '3px solid #10B981' : '3px solid transparent',
+                        background: isLive ? 'rgba(16,185,129,0.03)' : undefined
+                      }}>
+                      {/* Live pulse dot vs Baseline badge */}
                       <div className="col-span-1 flex items-center justify-center">
                         {isLive ? (
-                          <div className="relative w-2.5 h-2.5">
-                            <span className="absolute inset-0 rounded-full animate-ping opacity-60" style={{ background: '#10B981' }} />
-                            <span className="relative w-2.5 h-2.5 rounded-full block" style={{ background: '#10B981' }} />
-                          </div>
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs" title="Live WebSocket Transaction">
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-600" />
+                            </span>
+                            LIVE
+                          </span>
                         ) : (
-                          <span className="w-1.5 h-1.5 rounded-full block" style={{ background: '#E4E4E7' }} title="Historical" />
+                          <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 border border-gray-200" title="Seeded Baseline Transaction">
+                            Base
+                          </span>
                         )}
                       </div>
                       <div className="col-span-2 text-xs font-mono" style={{ color: '#71717A' }}>
@@ -708,7 +721,7 @@ function ComplianceReport() {
   const generate = async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(api(`/api/compliance-report?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`));
+      const res = await fetch(apiUrl(`/api/compliance-report?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`));
       if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
       setReport(await res.json());
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to generate report.'); }

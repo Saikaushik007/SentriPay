@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Settings2, Save, Plus, X, Clock, CheckCircle2, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, Shield } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Settings2, Save, Plus, X, Clock, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, Shield, RotateCcw } from 'lucide-react';
 import PolicySimulator from '../components/PolicySimulator';
+import { apiUrl } from '../lib/api';
+import { useToast } from '../context/ToastContext';
 
 type PolicyConfig = {
   id: string;
@@ -19,45 +21,36 @@ function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse bg-gray-200 rounded-2xl ${className}`} />;
 }
 
-function Toast({ message, visible }: { message: string; visible: boolean }) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          initial={{ opacity: 0, y: -20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -20, scale: 0.95 }}
-          className="fixed top-6 right-6 z-50 flex items-center gap-3 text-white px-5 py-3.5 rounded-2xl text-sm font-semibold"
-          style={{ background: 'linear-gradient(135deg,#10B981,#34D399)', boxShadow: '0 4px 24px -4px rgba(16,185,129,0.4)' }}
-        >
-          <CheckCircle2 size={18} /> {message}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
 export default function Policies() {
   const [policies, setPolicies] = useState<PolicyConfig | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<PolicyConfig | null>(null);
   const [newDenyMerchant, setNewDenyMerchant] = useState('');
   const [newAllowMerchant, setNewAllowMerchant] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [toast, setToast] = useState(false);
-
-  const showToast = () => { setToast(true); setTimeout(() => setToast(false), 3000); };
+  const toast = useToast();
 
   const loadAll = () => {
     setLoading(true);
+    setError(null);
     Promise.all([
-      fetch('/api/policies').then(r => r.json()),
-      fetch('/api/policies/history').then(r => r.json())
+      fetch(apiUrl('/api/policies')).then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }),
+      fetch(apiUrl('/api/policies/history')).then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
     ]).then(([pol, hist]) => {
       setPolicies(pol); setDraft(pol); setHistory(hist);
-    }).catch(console.error).finally(() => setLoading(false));
+    }).catch(err => {
+      console.error(err);
+      setError(err?.message || 'Failed to load policies');
+    }).finally(() => setLoading(false));
   };
 
   useEffect(() => { loadAll(); }, []);
@@ -66,7 +59,7 @@ export default function Policies() {
     if (!draft) return;
     setIsSaving(true);
     try {
-      const res = await fetch('/api/policies', {
+      const res = await fetch(apiUrl('/api/policies'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -78,11 +71,16 @@ export default function Policies() {
           maxRiskScore: draft.maxRiskScore,
         })
       });
+      if (!res.ok) throw new Error(`Failed to save policy (HTTP ${res.status})`);
       const updated = await res.json();
       setPolicies(updated); setDraft(updated);
-      setIsEditing(false); showToast();
-      fetch('/api/policies/history').then(r => r.json()).then(setHistory);
-    } catch (e) { console.error(e); }
+      setIsEditing(false);
+      toast.success('Policy Saved', 'Guardrails persisted to Postgres and synced via WebSocket.');
+      fetch(apiUrl('/api/policies/history')).then(r => r.json()).then(setHistory).catch(console.error);
+    } catch (e: any) {
+      console.error(e);
+      toast.error('Save Failed', e?.message || 'Could not update policy');
+    }
     finally { setIsSaving(false); }
   };
 
@@ -91,7 +89,17 @@ export default function Policies() {
 
   return (
     <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full">
-      <Toast message="Policy saved to database ✓" visible={toast} />
+      {error && (
+        <div className="mb-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 flex items-center justify-between">
+          <div className="text-sm font-semibold">{error}</div>
+          <button
+            onClick={loadAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors"
+          >
+            <RotateCcw size={12} /> Retry
+          </button>
+        </div>
+      )}
 
       {/* ── Hero Banner ─────────────────────────────────────── */}
       <div

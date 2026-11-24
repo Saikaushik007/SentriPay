@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X, Key, Copy, Eye, EyeOff } from 'lucide-react';
+import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X, Key, Copy, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { apiUrl } from '../lib/api';
+import { useToast } from '../context/ToastContext';
 
 type AgentStat = {
   id?: string;
@@ -99,15 +101,19 @@ export default function Agents() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [revealedKeyId, setRevealedKeyId] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+  const toast = useToast();
 
   const handleCopyApiKey = (agentId: string, key: string) => {
     navigator.clipboard.writeText(key);
     setCopiedKeyId(agentId);
+    toast.info('API Key Copied', `${agentId} key copied to clipboard.`);
     setTimeout(() => setCopiedKeyId(null), 2000);
   };
 
-  useEffect(() => {
-    fetch('/api/agents')
+  const fetchAgents = () => {
+    setLoading(true);
+    setError(null);
+    fetch(apiUrl('/api/agents'))
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -115,17 +121,26 @@ export default function Agents() {
       .then(data => { setAgents(data); setError(null); })
       .catch(e => { console.error(e); setError(e.message); })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchAgents();
   }, []);
 
   const handleTogglePause = async (agentId: string) => {
     try {
       setActionLoadingId(agentId);
-      const res = await fetch(`/api/agents/${agentId}/pause`, { method: 'PATCH' });
+      const res = await fetch(apiUrl(`/api/agents/${agentId}/pause`), { method: 'PATCH' });
       if (!res.ok) throw new Error('Failed to toggle pause');
       const updated = await res.json();
       setAgents(prev => prev.map(a => a.agentId === agentId ? { ...a, status: updated.status } : a));
+      if (updated.status === 'PAUSED') {
+        toast.warning('Agent Paused', `${agentId} has been paused. Any incoming payments will be blocked.`);
+      } else {
+        toast.success('Agent Resumed', `${agentId} is now active and authorized to spend within policy.`);
+      }
     } catch (e: any) {
-      alert(e.message);
+      toast.error('Pause Toggle Failed', e.message);
     } finally {
       setActionLoadingId(null);
     }
@@ -134,9 +149,9 @@ export default function Agents() {
   const handleSaveBudget = async (agentId: string) => {
     try {
       const budget = parseFloat(editBudgetValue);
-      if (isNaN(budget) || budget < 0) return alert('Enter a valid budget amount');
+      if (isNaN(budget) || budget < 0) return toast.error('Invalid Budget', 'Enter a positive budget amount');
       setActionLoadingId(agentId);
-      const res = await fetch(`/api/agents/${agentId}/budget`, {
+      const res = await fetch(apiUrl(`/api/agents/${agentId}/budget`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dailyBudget: budget })
@@ -145,8 +160,9 @@ export default function Agents() {
       const updated = await res.json();
       setAgents(prev => prev.map(a => a.agentId === agentId ? { ...a, dailyBudget: updated.dailyBudget } : a));
       setEditingAgentId(null);
+      toast.success('Budget Updated', `${agentId} daily budget set to $${budget.toLocaleString()}.`);
     } catch (e: any) {
-      alert(e.message);
+      toast.error('Budget Update Failed', e.message);
     } finally {
       setActionLoadingId(null);
     }
@@ -222,7 +238,13 @@ export default function Agents() {
         <div className="flex flex-col items-center py-20 text-red-500 gap-3">
           <ShieldX size={40} />
           <p className="font-semibold">Failed to load agents: {error}</p>
-          <p className="text-sm text-gray-400">Is the backend running on port 3001?</p>
+          <p className="text-sm text-gray-400">Ensure the backend is online and database is reachable.</p>
+          <button
+            onClick={fetchAgents}
+            className="flex items-center gap-2 mt-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            <RotateCcw size={13} /> Retry Connection
+          </button>
         </div>
       ) : agents.length === 0 ? (
         <div className="flex flex-col items-center py-24 gap-5" style={{ background: 'linear-gradient(135deg,#F0F9FF,#F0FDF4)', borderRadius: '1.5rem', border: '1px solid #BAE6FD', boxShadow: '0 16px 36px -24px rgba(14,165,233,.45)' }}>

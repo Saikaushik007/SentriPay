@@ -5,6 +5,7 @@ import {
   ShieldCheck, Bot, Zap, ArrowRight, 
   Lock, TrendingUp, Activity, ArrowUpRight 
 } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 interface LiveStats {
   totalCount: number;
@@ -27,8 +28,8 @@ export default function LandingPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/transactions').then(r => r.json()).catch(() => []),
-      fetch('/api/agents').then(r => r.json()).catch(() => [])
+      fetch(apiUrl('/api/transactions')).then(r => r.json()).catch(() => []),
+      fetch(apiUrl('/api/agents')).then(r => r.json()).catch(() => [])
     ]).then(([txs, agents]) => {
       if (Array.isArray(txs) && txs.length > 0) {
         const approved = txs.filter((t: any) => t.status === 'APPROVED');

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Sparkles, Play, RefreshCw, Zap, ShieldAlert, Ban, DollarSign, PauseCircle } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 interface ScenariosPanelProps {
   onScenarioExecuted?: () => void;
@@ -14,7 +15,7 @@ export default function ScenariosPanel({ onScenarioExecuted }: ScenariosPanelPro
     try {
       if (scenario === 'overlimit') {
         // Exceeds per-tx limit of $1,000
-        await fetch('/api/payment-intent', {
+        await fetch(apiUrl('/api/payment-intent'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -25,7 +26,7 @@ export default function ScenariosPanel({ onScenarioExecuted }: ScenariosPanelPro
         });
       } else if (scenario === 'denylist') {
         // Denylisted merchant
-        await fetch('/api/payment-intent', {
+        await fetch(apiUrl('/api/payment-intent'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -37,19 +38,19 @@ export default function ScenariosPanel({ onScenarioExecuted }: ScenariosPanelPro
       } else if (scenario === 'burst') {
         // Rapid burst: 4 concurrent calls in under 1 second to trigger velocity cap
         await Promise.all([
-          fetch('/api/payment-intent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 15, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
-          fetch('/api/payment-intent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 18, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
-          fetch('/api/payment-intent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 22, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
-          fetch('/api/payment-intent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 25, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
+          fetch(apiUrl('/api/payment-intent'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 15, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
+          fetch(apiUrl('/api/payment-intent'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 18, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
+          fetch(apiUrl('/api/payment-intent'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 22, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
+          fetch(apiUrl('/api/payment-intent'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 25, merchant: 'OpenAI API', agentId: 'agent-beta-002' }) }),
         ]);
       } else if (scenario === 'paused') {
         // Ensure agent-alpha-001 is paused, then fire
-        const agents = await fetch('/api/agents').then(r => r.json()).catch(() => []);
+        const agents = await fetch(apiUrl('/api/agents')).then(r => r.json()).catch(() => []);
         const alpha = Array.isArray(agents) ? agents.find((a: any) => (a.id || a.agentId) === 'agent-alpha-001') : null;
         if (alpha && alpha.status !== 'PAUSED') {
-          await fetch('/api/agents/agent-alpha-001/pause', { method: 'PATCH' });
+          await fetch(apiUrl('/api/agents/agent-alpha-001/pause'), { method: 'PATCH' });
         }
-        await fetch('/api/payment-intent', {
+        await fetch(apiUrl('/api/payment-intent'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -60,7 +61,7 @@ export default function ScenariosPanel({ onScenarioExecuted }: ScenariosPanelPro
         });
       } else if (scenario === 'runaway') {
         // High amount to breach rolling 24h budget or agent daily budget
-        await fetch('/api/payment-intent', {
+        await fetch(apiUrl('/api/payment-intent'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

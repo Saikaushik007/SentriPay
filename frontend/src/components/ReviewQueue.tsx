@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
+import { apiUrl } from '../lib/api';
+import { useToast } from '../context/ToastContext';
 
 interface Transaction {
   id: string;
@@ -23,6 +25,7 @@ interface ReviewQueueProps {
 
 export default function ReviewQueue({ transactions, onInspect, onActionComplete }: ReviewQueueProps) {
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const toast = useToast();
 
   const pendingTxs = transactions.filter(t => t.status === 'FLAGGED');
 
@@ -30,7 +33,7 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
     e.stopPropagation();
     setProcessingId(id);
     try {
-      const res = await fetch(`/api/transactions/${id}/review`, {
+      const res = await fetch(apiUrl(`/api/transactions/${id}/review`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -40,10 +43,17 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
         })
       });
       if (res.ok) {
+        if (action === 'APPROVE') {
+          toast.success('Transaction Approved', `Tx ${id.slice(0, 8)} manually approved & dispatched for settlement.`);
+        } else {
+          toast.warning('Transaction Rejected', `Tx ${id.slice(0, 8)} declined by security reviewer.`);
+        }
         onActionComplete?.();
+      } else {
+        toast.error('Review Action Failed', `Server returned status ${res.status}`);
       }
-    } catch (err) {
-      console.error('Review action failed:', err);
+    } catch (err: any) {
+      toast.error('Review Action Error', err?.message || 'Network error');
     } finally {
       setProcessingId(null);
     }
