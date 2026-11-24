@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+*.env
+
+# Local Storage & Database files
+spend_guard_store.json
+*.db
+*.sqlite
+
+# Build outputs
+dist/
+build/
+*/dist/
+*/build/
+
+# Editor & AI Tool state
+.vscode/
+.idea/
+.claude/
+.windsurf/
+.agents/
+*.bak
+
+# Logs & temp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+skills-lock.json

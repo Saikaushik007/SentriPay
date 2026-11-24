@@ -1,11 +1,12 @@
-import { NavLink } from 'react-router-dom';
-import { Layers, LayoutDashboard, Shield, Bot } from 'lucide-react';
+import { NavLink, Link } from 'react-router-dom';
+import { Layers, LayoutDashboard, Shield, Bot, Code } from 'lucide-react';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
-    { to: '/',          label: 'Dashboard', icon: LayoutDashboard },
+    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/policies',  label: 'Policies',  icon: Shield },
     { to: '/agents',    label: 'Agents',    icon: Bot },
+    { to: '/integrate', label: 'Integrate', icon: Code },
   ];
 
   return (
@@ -24,7 +25,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-50 h-[68px] flex items-center justify-between px-8
                          bg-background/75 backdrop-blur-xl border-b border-border/60">
         {/* Logo */}
-        <div className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
           <div className="w-8 h-8 rounded-xl bg-gradient-primary flex items-center justify-center shadow-glow-primary">
             <Layers size={16} className="text-white" strokeWidth={2.5} />
           </div>
@@ -34,7 +35,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               Pay
             </span>
           </span>
-        </div>
+        </Link>
 
         {/* Pill nav */}
         <nav className="flex items-center gap-1 bg-white/70 backdrop-blur-sm border border-border/60 p-1.5 rounded-full shadow-sm">

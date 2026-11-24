@@ -1,7 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, ShieldAlert, Activity, DollarSign, Clock, Cpu, Banknote, Search, X, RotateCcw, CheckCircle2, Download, Play, Sparkles, TrendingUp, FileCheck2, CalendarRange, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Activity, DollarSign, Clock, Cpu, Banknote, Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2, CalendarRange, AlertTriangle } from 'lucide-react';
+import TransactionDrawer from '../components/TransactionDrawer';
+import ScenariosPanel from '../components/ScenariosPanel';
+import ReviewQueue from '../components/ReviewQueue';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer
@@ -30,6 +33,7 @@ type Transaction = {
   id: string; amount: number; merchant: string; agentId: string;
   status: 'APPROVED' | 'BLOCKED' | 'FLAGGED'; reason: string;
   riskScore?: number; settlementId?: string;
+  ruleResults?: any;
   createdAt?: string; timestamp?: string;
 };
 type ChartPoint = { time: string; approved: number; blocked: number; flagged: number };
@@ -40,6 +44,7 @@ type Anomaly = { id: string; severity: 'warning' | 'critical'; message: string }
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [merchants, setMerchants] = useState<MerchantStat[]>([]);
   const [budget, setBudget] = useState<BudgetInfo | null>(null);
@@ -52,7 +57,6 @@ export default function Dashboard() {
   // Live tracking — IDs that arrived via websocket (not pre-seeded)
   const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState(false);
-  const [simulating, setSimulating] = useState<string | null>(null);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [dismissedAnomalies, setDismissedAnomalies] = useState<Set<string>>(new Set());
 
@@ -84,12 +88,20 @@ export default function Dashboard() {
       refreshAnomalies();
     };
     const onDemoReset = () => { fetchAll(); setLiveIds(new Set()); setToast(true); setTimeout(() => setToast(false), 3000); };
+    const onTxUpdated = (updated: Transaction) => {
+      setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+      fetch(api('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
+      fetch(api('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
+      fetch(api('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
+    };
     socket.on('new_transaction', onNewTx);
     socket.on('demo_reset', onDemoReset);
+    socket.on('transaction_updated', onTxUpdated);
     const anomalyInterval = window.setInterval(refreshAnomalies, 45000);
     return () => {
       socket.off('new_transaction', onNewTx);
       socket.off('demo_reset', onDemoReset);
+      socket.off('transaction_updated', onTxUpdated);
       window.clearInterval(anomalyInterval);
     };
   }, []);
@@ -136,13 +148,6 @@ export default function Dashboard() {
     const link = document.createElement('a');
     link.href = url; link.download = `sentripay-transactions-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
     URL.revokeObjectURL(url);
-  };
-
-  const runSimulation = async (kind: 'approved' | 'blocked' | 'flagged') => {
-    const payloads = { approved: { amount: 35, merchant: 'OpenAI API', agentId: 'dashboard-simulator' }, blocked: { amount: 1001, merchant: 'AWS Compute', agentId: 'dashboard-simulator' }, flagged: { amount: 600, merchant: 'Unverified Data Relay', agentId: 'dashboard-simulator' } };
-    setSimulating(kind);
-    try { await fetch(api('/api/payment-intent'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloads[kind]) }); }
-    finally { setSimulating(null); }
   };
 
   return (
@@ -212,9 +217,9 @@ export default function Dashboard() {
             <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl pointer-events-none" style={{ background: 'rgba(255,255,255,0.08)' }} />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-5">
             <InsightPanel insights={insights} />
-            <SimulatorPanel simulating={simulating} onRun={runSimulation} />
+            <ScenariosPanel onScenarioExecuted={fetchAll} />
           </div>
 
           {/* Traffic Volume Chart */}
@@ -262,6 +267,9 @@ export default function Dashboard() {
               </ResponsiveContainer>
             )}
           </div>
+
+          {/* Review Queue for FLAGGED Transactions */}
+          <ReviewQueue transactions={transactions} onInspect={setSelectedTx} onActionComplete={fetchAll} />
 
           {/* Live Feed with Filters */}
           <div className="bg-surface border-0 rounded-3xl shadow-card hover:shadow-card-hover transition-shadow duration-300 flex flex-col overflow-hidden">
@@ -317,7 +325,10 @@ export default function Dashboard() {
               <div className="col-span-3">Merchant</div>
               <div className="col-span-2">Amount</div>
               <div className="col-span-2">Status</div>
-              <div className="col-span-2">Settlement / Reason</div>
+              <div className="col-span-2 flex items-center justify-between">
+                <span>Settlement / Reason</span>
+                <span className="text-[10px] text-indigo-500 font-normal lowercase tracking-normal">(click to inspect)</span>
+              </div>
             </div>
 
             <div className="flex flex-col max-h-[480px] overflow-y-auto p-3">
@@ -337,7 +348,9 @@ export default function Dashboard() {
                       animate={{ opacity: 1, y: 0, backgroundColor: 'rgba(255,255,255,0)' }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.4 }}
-                      className="grid grid-cols-12 gap-2 px-3 py-3 items-center rounded-xl hover:bg-gray-50 transition-all"
+                      onClick={() => setSelectedTx(tx)}
+                      title="Click to view decision explainer & policy rules"
+                      className="grid grid-cols-12 gap-2 px-3 py-3 items-center rounded-xl hover:bg-violet-50/70 hover:shadow-sm cursor-pointer transition-all"
                       style={{ borderBottom: '1px solid #F4F4F5' }}>
                       {/* Live pulse dot */}
                       <div className="col-span-1 flex items-center justify-center">
@@ -486,6 +499,7 @@ export default function Dashboard() {
         </div>
       </div>
       <ComplianceReport />
+      <TransactionDrawer transaction={selectedTx} onClose={() => setSelectedTx(null)} />
     </div>
   );
 }
@@ -742,8 +756,4 @@ function InsightPanel({ insights }: { insights: InsightInfo | null }) {
     <div className="flex items-center gap-2 mb-4" style={{ color: '#047857' }}><TrendingUp size={17} /><span className="font-bold">Live spend intelligence</span></div>
     <div className="grid grid-cols-2 gap-3"><div><div className="text-xs" style={{ color: '#64748B' }}>7d vs previous</div><div className="font-mono font-bold text-xl" style={{ color: change !== null && change !== undefined && change > 0 ? '#D97706' : '#059669' }}>{change === null || change === undefined ? '—' : `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`}</div></div><div><div className="text-xs" style={{ color: '#64748B' }}>Busiest hour</div><div className="font-mono font-bold text-xl" style={{ color: '#2563EB' }}>{hour}</div></div></div>
   </div>;
-}
-
-function SimulatorPanel({ simulating, onRun }: { simulating: string | null; onRun: (kind: 'approved' | 'blocked' | 'flagged') => void }) {
-  return <div className="rounded-2xl p-5" style={{ background: 'linear-gradient(135deg,#FFF7ED,#FDF2F8)', border: '1px solid #FED7AA', boxShadow: '0 10px 24px -18px rgba(234,88,12,.55)' }}><div className="flex items-center gap-2 mb-1" style={{ color: '#C2410C' }}><Sparkles size={17} /><span className="font-bold">Live Agent Simulator</span></div><p className="text-xs mb-4" style={{ color: '#78716C' }}>Creates a real payment intent and streams its actual policy result.</p><div className="flex flex-wrap gap-2">{(['approved','blocked','flagged'] as const).map(kind => <button key={kind} onClick={() => onRun(kind)} disabled={!!simulating} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50" style={{ background: kind === 'approved' ? '#059669' : kind === 'blocked' ? '#E11D48' : '#D97706' }}><Play size={12} />{simulating === kind ? 'Running…' : kind}</button>)}</div></div>;
 }

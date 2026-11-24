@@ -15,6 +15,7 @@ model Transaction {
   reason       String
   riskScore    Int?
   settlementId String?  // Set on APPROVED transactions
+  ruleResults  Json?
   createdAt    DateTime @default(now())
 }
 
@@ -34,4 +35,14 @@ model PolicyHistory {
   action      String   // e.g. "UPDATED_LIMIT", "ADDED_MERCHANT_TO_DENYLIST"
   detail      String   // e.g. "Changed Max Tx Limit from $1000 to $5000"
   createdAt   DateTime @default(now())
+}
+
+model Agent {
+  id          String   @id
+  name        String
+  description String?
+  status      String   @default("ACTIVE") // 'ACTIVE' | 'PAUSED'
+  dailyBudget Float    @default(500)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

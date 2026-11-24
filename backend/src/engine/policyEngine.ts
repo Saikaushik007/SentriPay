@@ -7,11 +7,31 @@ export type TransactionRequest = {
   agentId: string;
 };
 
+export type RuleEvaluation = {
+  rule: string;
+  passed: boolean;
+  limitValue: string;
+  actualValue: string;
+  message: string;
+};
+
+export type RiskBreakdownItem = {
+  factor: string;
+  points: number;
+  description: string;
+};
+
+export type RuleResults = {
+  rules: RuleEvaluation[];
+  riskBreakdown: RiskBreakdownItem[];
+};
+
 export type PolicyResult = {
   status: 'APPROVED' | 'BLOCKED' | 'FLAGGED';
   reason: string;
-  riskScore?: number;
+  riskScore: number;
   settlementId?: string;
+  ruleResults: RuleResults;
 };
 
 export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResult> {
@@ -32,53 +52,112 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
     });
   }
 
+  const rules: RuleEvaluation[] = [];
+
+  // ── Rule 0: Agent Pause Check ─────────────────────────────────────────────
+  const agent = await prisma.agent.findUnique({
+    where: { id: tx.agentId }
+  });
+  const isAgentPaused = agent ? agent.status === 'PAUSED' : false;
+  rules.push({
+    rule: 'Agent Status',
+    passed: !isAgentPaused,
+    limitValue: 'ACTIVE',
+    actualValue: agent?.status || 'ACTIVE',
+    message: isAgentPaused ? 'Agent paused' : 'Agent is active and authorized'
+  });
+
+  // ── Rule 0b: Per-agent daily budget ───────────────────────────────────────
+  let agentBudgetFailed = false;
+  let agentSpent = 0;
+  if (agent && agent.dailyBudget > 0) {
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const agentAgg = await prisma.transaction.aggregate({
+      _sum: { amount: true },
+      where: { agentId: tx.agentId, status: 'APPROVED', createdAt: { gt: oneDayAgo } }
+    });
+    agentSpent = agentAgg._sum.amount || 0;
+    agentBudgetFailed = (agentSpent + tx.amount > agent.dailyBudget);
+    rules.push({
+      rule: 'Agent Daily Budget',
+      passed: !agentBudgetFailed,
+      limitValue: `$${agent.dailyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      actualValue: `$${(agentSpent + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${agentSpent.toFixed(2)} spent)`,
+      message: agentBudgetFailed
+        ? `Exceeds agent daily budget of $${agent.dailyBudget.toLocaleString()} ($${agentSpent.toFixed(2)} already spent)`
+        : 'Spend within agent daily budget'
+    });
+  } else {
+    rules.push({
+      rule: 'Agent Daily Budget',
+      passed: true,
+      limitValue: 'No budget limit',
+      actualValue: '$0.00',
+      message: 'No agent daily budget restriction configured'
+    });
+  }
+
   // ── Rule 1: Denylist check ────────────────────────────────────────────────
   const isDenied = config.denylist.some(m =>
     m.toLowerCase() === tx.merchant.toLowerCase()
   );
-  if (isDenied) {
-    return {
-      status: 'BLOCKED',
-      reason: `Merchant "${tx.merchant}" is on the denylist`,
-      riskScore: 100
-    };
-  }
+  rules.push({
+    rule: 'Merchant Denylist',
+    passed: !isDenied,
+    limitValue: 'Not on denylist',
+    actualValue: isDenied ? `Denylisted ("${tx.merchant}")` : `Clean ("${tx.merchant}")`,
+    message: isDenied ? `Merchant "${tx.merchant}" is on the denylist` : 'Merchant passed denylist check'
+  });
 
-  // ── Rule 2: Allowlist mode (if enabled, only listed merchants pass) ───────
+  // ── Rule 2: Allowlist mode (if enabled) ───────────────────────────────────
+  let allowlistFailed = false;
   if (config.allowlistMode && config.allowlist.length > 0) {
     const isAllowed = config.allowlist.some(m =>
       m.toLowerCase() === tx.merchant.toLowerCase()
     );
-    if (!isAllowed) {
-      return {
-        status: 'BLOCKED',
-        reason: `Allowlist mode active — merchant "${tx.merchant}" is not on the approved list`,
-        riskScore: 85
-      };
-    }
+    allowlistFailed = !isAllowed;
+    rules.push({
+      rule: 'Merchant Allowlist',
+      passed: isAllowed,
+      limitValue: 'Must be on allowlist',
+      actualValue: isAllowed ? 'Included' : `Not on allowlist ("${tx.merchant}")`,
+      message: isAllowed ? 'Merchant is verified on allowlist' : `Allowlist mode active — merchant "${tx.merchant}" is not on the approved list`
+    });
+  } else {
+    rules.push({
+      rule: 'Merchant Allowlist',
+      passed: true,
+      limitValue: 'Allowlist mode disabled',
+      actualValue: 'Standard check',
+      message: 'Allowlist mode is inactive'
+    });
   }
 
   // ── Rule 3: Per-transaction limit ─────────────────────────────────────────
-  if (tx.amount > config.maxTxLimit) {
-    return {
-      status: 'BLOCKED',
-      reason: `Exceeds per-transaction limit of $${config.maxTxLimit.toLocaleString()} (attempted $${tx.amount.toLocaleString()})`,
-      riskScore: 80
-    };
-  }
+  const txLimitFailed = tx.amount > config.maxTxLimit;
+  rules.push({
+    rule: 'Per-Transaction Limit',
+    passed: !txLimitFailed,
+    limitValue: `$${config.maxTxLimit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    actualValue: `$${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    message: txLimitFailed
+      ? `Exceeds per-transaction limit of $${config.maxTxLimit.toLocaleString()} (attempted $${tx.amount.toLocaleString()})`
+      : 'Transaction amount within limit'
+  });
 
   // ── Rule 4: Frequency cap (>3 tx/sec per agent) ───────────────────────────
   const oneSecondAgo = new Date(now.getTime() - 1000);
   const recentCount = await prisma.transaction.count({
     where: { agentId: tx.agentId, createdAt: { gt: oneSecondAgo } }
   });
-  if (recentCount >= 3) {
-    return {
-      status: 'BLOCKED',
-      reason: 'Frequency cap exceeded — too many requests in 1s window',
-      riskScore: 90
-    };
-  }
+  const freqCapFailed = recentCount >= 3;
+  rules.push({
+    rule: 'Velocity Frequency Cap',
+    passed: !freqCapFailed,
+    limitValue: '<= 3 tx/sec',
+    actualValue: `${recentCount + 1} tx/sec`,
+    message: freqCapFailed ? 'Frequency cap exceeded — too many requests in 1s window' : 'Velocity within safety limits'
+  });
 
   // ── Rule 5: Rolling 24h budget ────────────────────────────────────────────
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -87,41 +166,158 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
     where: { status: 'APPROVED', createdAt: { gt: oneDayAgo } }
   });
   const dailySpend = agg._sum.amount || 0;
-  if (dailySpend + tx.amount > config.dailyBudget) {
-    return {
-      status: 'BLOCKED',
-      reason: `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${dailySpend.toFixed(2)} already spent)`,
-      riskScore: 60
-    };
-  }
+  const budgetFailed = dailySpend + tx.amount > config.dailyBudget;
+  rules.push({
+    rule: 'Rolling 24h Budget',
+    passed: !budgetFailed,
+    limitValue: `$${config.dailyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    actualValue: `$${(dailySpend + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${dailySpend.toFixed(2)} already spent)`,
+    message: budgetFailed
+      ? `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${dailySpend.toFixed(2)} already spent)`
+      : '24h spend within budget'
+  });
 
-  // ── Rule 6: Risk score (configurable threshold) ───────────────────────────
+  // ── Rule 6: Risk score calculation & breakdown ────────────────────────────
   const knownMerchants = [
     'Vercel Infrastructure','AWS Compute','Stripe Payments','SendGrid Email',
     'Cloudflare CDN','OpenAI API','Twilio SMS','GitHub Actions',
     'Datadog Monitoring','PagerDuty Alerts','Sentry Errors','Notion Workspace'
   ];
-  let riskScore = 10;
-  if (!knownMerchants.includes(tx.merchant)) riskScore += 45;
-  if (tx.amount > 500) riskScore += 25;
-  riskScore = Math.min(100, riskScore);
 
+  const riskBreakdown: RiskBreakdownItem[] = [
+    { factor: 'Base Risk', points: 10, description: 'Baseline autonomous execution risk' }
+  ];
+
+  let calculatedRisk = 10;
+  if (!knownMerchants.includes(tx.merchant)) {
+    calculatedRisk += 45;
+    riskBreakdown.push({
+      factor: 'Unverified Merchant',
+      points: 45,
+      description: `Merchant "${tx.merchant}" is not in the known ecosystem`
+    });
+  } else {
+    riskBreakdown.push({
+      factor: 'Verified Merchant',
+      points: 0,
+      description: `Known ecosystem merchant: "${tx.merchant}"`
+    });
+  }
+
+  if (tx.amount > 500) {
+    calculatedRisk += 25;
+    riskBreakdown.push({
+      factor: 'High-Value Transfer',
+      points: 25,
+      description: `Transaction amount > $500 ($${tx.amount.toFixed(2)})`
+    });
+  } else {
+    riskBreakdown.push({
+      factor: 'Standard Size',
+      points: 0,
+      description: `Standard payment amount <= $500 ($${tx.amount.toFixed(2)})`
+    });
+  }
+
+  const finalRiskScore = Math.min(100, isAgentPaused || isDenied ? 100 : calculatedRisk);
   const threshold = config.maxRiskScore ?? 80;
-  if (riskScore >= threshold) {
+  const riskThresholdFailed = finalRiskScore >= threshold;
+
+  rules.push({
+    rule: 'Risk Score Threshold',
+    passed: !riskThresholdFailed,
+    limitValue: `< ${threshold} / 100`,
+    actualValue: `${finalRiskScore} / 100`,
+    message: riskThresholdFailed
+      ? `Risk score ${finalRiskScore}/100 exceeds threshold of ${threshold} — flagged for review`
+      : 'Risk score within acceptable parameters'
+  });
+
+  const ruleResults: RuleResults = {
+    rules,
+    riskBreakdown
+  };
+
+  // ── Determine Status & Reason ─────────────────────────────────────────────
+  if (isAgentPaused) {
     return {
-      status: 'FLAGGED',
-      reason: `Risk score ${riskScore}/100 exceeds threshold of ${threshold} — flagged for review`,
-      riskScore
+      status: 'BLOCKED',
+      reason: 'Agent paused',
+      riskScore: 100,
+      ruleResults
     };
   }
 
-  // ── APPROVED: generate settlement ID ──────────────────────────────────────
-  const settlementId = `SXP-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  if (agentBudgetFailed) {
+    return {
+      status: 'BLOCKED',
+      reason: `Exceeds agent daily budget of $${agent!.dailyBudget.toLocaleString()} ($${agentSpent.toFixed(2)} already spent)`,
+      riskScore: 75,
+      ruleResults
+    };
+  }
 
+  if (isDenied) {
+    return {
+      status: 'BLOCKED',
+      reason: `Merchant "${tx.merchant}" is on the denylist`,
+      riskScore: 100,
+      ruleResults
+    };
+  }
+
+  if (allowlistFailed) {
+    return {
+      status: 'BLOCKED',
+      reason: `Allowlist mode active — merchant "${tx.merchant}" is not on the approved list`,
+      riskScore: 85,
+      ruleResults
+    };
+  }
+
+  if (txLimitFailed) {
+    return {
+      status: 'BLOCKED',
+      reason: `Exceeds per-transaction limit of $${config.maxTxLimit.toLocaleString()} (attempted $${tx.amount.toLocaleString()})`,
+      riskScore: 80,
+      ruleResults
+    };
+  }
+
+  if (freqCapFailed) {
+    return {
+      status: 'BLOCKED',
+      reason: 'Frequency cap exceeded — too many requests in 1s window',
+      riskScore: 90,
+      ruleResults
+    };
+  }
+
+  if (budgetFailed) {
+    return {
+      status: 'BLOCKED',
+      reason: `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${dailySpend.toFixed(2)} already spent)`,
+      riskScore: 60,
+      ruleResults
+    };
+  }
+
+  if (riskThresholdFailed) {
+    return {
+      status: 'FLAGGED',
+      reason: `Risk score ${finalRiskScore}/100 exceeds threshold of ${threshold} — flagged for review`,
+      riskScore: finalRiskScore,
+      ruleResults
+    };
+  }
+
+  // ── APPROVED ──────────────────────────────────────────────────────────────
+  const settlementId = `SXP-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
   return {
     status: 'APPROVED',
     reason: `All policy checks passed — settled as ${settlementId}`,
-    riskScore,
-    settlementId
+    riskScore: finalRiskScore,
+    settlementId,
+    ruleResults
   };
 }

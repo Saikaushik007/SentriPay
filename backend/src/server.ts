@@ -3,6 +3,7 @@ import http from 'http';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -24,13 +25,122 @@ app.use(express.json());
 import { evaluatePolicy } from './engine/policyEngine';
 import prisma from './prismaClient';
 
+// Helper to construct realistic rule results for historical / seeded rows
+function buildRuleResultsFallback(t: { amount: number; merchant: string; agentId: string; status: string; reason: string; riskScore: number | null }) {
+  const isAgentPaused = t.reason?.toLowerCase().includes('agent paused');
+  const isDenylist = t.reason?.toLowerCase().includes('denylist');
+  const isTxLimit = t.reason?.toLowerCase().includes('per-transaction limit');
+  const isFreqCap = t.reason?.toLowerCase().includes('frequency cap');
+  const isBudget = t.reason?.toLowerCase().includes('budget');
+  const isFlagged = t.status === 'FLAGGED';
+  const score = t.riskScore ?? (isFlagged ? 85 : 20);
+
+  return {
+    rules: [
+      {
+        rule: 'Agent Status',
+        passed: !isAgentPaused,
+        limitValue: 'ACTIVE',
+        actualValue: isAgentPaused ? 'PAUSED' : 'ACTIVE',
+        message: isAgentPaused ? 'Agent paused' : 'Agent is active and authorized'
+      },
+      {
+        rule: 'Merchant Denylist',
+        passed: !isDenylist,
+        limitValue: 'Not on denylist',
+        actualValue: isDenylist ? `Denylisted ("${t.merchant}")` : `Clean ("${t.merchant}")`,
+        message: isDenylist ? t.reason : 'Merchant passed denylist check'
+      },
+      {
+        rule: 'Merchant Allowlist',
+        passed: true,
+        limitValue: 'Allowlist mode disabled',
+        actualValue: 'Standard check',
+        message: 'Allowlist mode is inactive'
+      },
+      {
+        rule: 'Per-Transaction Limit',
+        passed: !isTxLimit,
+        limitValue: '$1,000.00',
+        actualValue: `$${t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        message: isTxLimit ? t.reason : 'Transaction amount within limit'
+      },
+      {
+        rule: 'Velocity Frequency Cap',
+        passed: !isFreqCap,
+        limitValue: '<= 3 tx/sec',
+        actualValue: isFreqCap ? '4 tx/sec' : '1 tx/sec',
+        message: isFreqCap ? t.reason : 'Velocity within safety limits'
+      },
+      {
+        rule: 'Rolling 24h Budget',
+        passed: !isBudget,
+        limitValue: '$2,000.00',
+        actualValue: isBudget ? `$${(2000 + t.amount).toFixed(2)}` : `$${t.amount.toFixed(2)}`,
+        message: isBudget ? t.reason : '24h spend within budget'
+      },
+      {
+        rule: 'Risk Score Threshold',
+        passed: !isFlagged,
+        limitValue: '< 80 / 100',
+        actualValue: `${score} / 100`,
+        message: isFlagged ? t.reason : 'Risk score within acceptable parameters'
+      }
+    ],
+    riskBreakdown: [
+      { factor: 'Base Risk', points: 10, description: 'Baseline autonomous execution risk' },
+      {
+        factor: isDenylist || !['Vercel Infrastructure','AWS Compute','Stripe Payments','SendGrid Email','Cloudflare CDN','OpenAI API','Twilio SMS','GitHub Actions','Datadog Monitoring','PagerDuty Alerts','Sentry Errors','Notion Workspace'].includes(t.merchant) ? 'Unverified Merchant' : 'Verified Merchant',
+        points: (isDenylist || !['Vercel Infrastructure','AWS Compute','Stripe Payments','SendGrid Email','Cloudflare CDN','OpenAI API','Twilio SMS','GitHub Actions','Datadog Monitoring','PagerDuty Alerts','Sentry Errors','Notion Workspace'].includes(t.merchant)) ? 45 : 0,
+        description: `Merchant safety profile: ${t.merchant}`
+      },
+      {
+        factor: t.amount > 500 ? 'High-Value Transfer' : 'Standard Size',
+        points: t.amount > 500 ? 25 : 0,
+        description: `Amount assessment: $${t.amount.toFixed(2)}`
+      }
+    ]
+  };
+}
+
+// ─── Policy Simulator (dry-run without saving or settling) ───────────────────
+app.post('/api/simulate', async (req, res) => {
+  const { amount, merchant, agentId } = req.body;
+  const numAmount = parseFloat(amount);
+  if (isNaN(numAmount) || numAmount <= 0) {
+    return res.status(400).json({ error: 'Valid payment amount is required' });
+  }
+  if (!merchant || !merchant.trim()) {
+    return res.status(400).json({ error: 'Merchant name is required' });
+  }
+
+  const result = await evaluatePolicy({
+    amount: numAmount,
+    merchant: merchant.trim(),
+    agentId: agentId || 'agent-alpha-001'
+  });
+
+  // Dry run must not return a settlement ID or say "settled"
+  const isApproved = result.status === 'APPROVED';
+  const simulatedResult = {
+    ...result,
+    settlementId: null,
+    reason: isApproved
+      ? 'Would be approved (simulation, nothing executed)'
+      : result.reason,
+    isSimulated: true
+  };
+
+  return res.json(simulatedResult);
+});
+
 // ─── Payment Intent (core) ────────────────────────────────────────────────────
 app.post('/api/payment-intent', async (req, res) => {
   const { amount, merchant, agentId } = req.body;
-  const { status, reason, riskScore, settlementId } = await evaluatePolicy({ amount, merchant, agentId });
+  const { status, reason, riskScore, settlementId, ruleResults } = await evaluatePolicy({ amount, merchant, agentId });
 
   const transaction = await prisma.transaction.create({
-    data: { amount, merchant, agentId, status, reason, riskScore, settlementId: settlementId || null }
+    data: { amount, merchant, agentId, status, reason, riskScore, settlementId: settlementId || null, ruleResults }
   });
 
   io.emit('new_transaction', transaction);
@@ -54,7 +164,86 @@ app.get('/api/transactions', async (req, res) => {
       } : {}),
     }
   });
-  return res.json(transactions);
+
+  const enriched = transactions.map(tx => {
+    if (!tx.ruleResults) {
+      return {
+        ...tx,
+        ruleResults: buildRuleResultsFallback(tx as any)
+      };
+    }
+    return tx;
+  });
+
+  return res.json(enriched);
+});
+
+// ─── Review Queue ─────────────────────────────────────────────────────────────
+app.get('/api/review-queue', async (_req, res) => {
+  const pending = await prisma.transaction.findMany({
+    where: {
+      status: { in: ['FLAGGED', 'PENDING_REVIEW'] }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  const enriched = pending.map(tx => {
+    if (!tx.ruleResults) {
+      return {
+        ...tx,
+        ruleResults: buildRuleResultsFallback(tx as any)
+      };
+    }
+    return tx;
+  });
+
+  return res.json(enriched);
+});
+
+app.post('/api/transactions/:id/review', async (req, res) => {
+  const { id } = req.params;
+  const { action, reviewer, note } = req.body;
+
+  if (!['APPROVE', 'REJECT'].includes(action)) {
+    return res.status(400).json({ error: 'Action must be APPROVE or REJECT' });
+  }
+
+  const tx = await prisma.transaction.findUnique({ where: { id } });
+  if (!tx) {
+    return res.status(404).json({ error: 'Transaction not found' });
+  }
+
+  let updatedStatus: 'APPROVED' | 'BLOCKED';
+  let updatedReason: string;
+  let settlementId = tx.settlementId;
+
+  if (action === 'APPROVE') {
+    updatedStatus = 'APPROVED';
+    settlementId = `SXP-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    updatedReason = note ? `Manual Review Approved: ${note}` : `Manually approved by operator — settled as ${settlementId}`;
+  } else {
+    updatedStatus = 'BLOCKED';
+    updatedReason = note ? `Manual Review Rejected: ${note}` : `Rejected in review queue: High risk payment declined`;
+  }
+
+  const updatedTx = await prisma.transaction.update({
+    where: { id },
+    data: {
+      status: updatedStatus,
+      reason: updatedReason,
+      settlementId
+    }
+  });
+
+  await prisma.policyHistory.create({
+    data: {
+      action: action === 'APPROVE' ? 'TRANSACTION_APPROVED' : 'TRANSACTION_REJECTED',
+      detail: `Tx ${id.slice(0, 8)} ($${tx.amount.toFixed(2)} to ${tx.merchant}) ${action === 'APPROVE' ? 'manually approved' : 'rejected'}${reviewer ? ` by ${reviewer}` : ''}`
+    }
+  });
+
+  io.emit('transaction_updated', updatedTx);
+  return res.json(updatedTx);
 });
 
 // ─── Time-series chart data ───────────────────────────────────────────────────
@@ -270,6 +459,21 @@ app.get('/api/policies/history', async (req, res) => {
 
 // ─── Agents ───────────────────────────────────────────────────────────────────
 app.get('/api/agents', async (req, res) => {
+  let dbAgents = await prisma.agent.findMany({
+    orderBy: { createdAt: 'asc' }
+  });
+
+  // If no agents yet, auto-bootstrap default agents in DB
+  if (dbAgents.length === 0) {
+    const defaultAgents = [
+      { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500 },
+      { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000 },
+      { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500 }
+    ];
+    await prisma.agent.createMany({ data: defaultAgents });
+    dbAgents = await prisma.agent.findMany({ orderBy: { createdAt: 'asc' } });
+  }
+
   const txs = await prisma.transaction.findMany({
     select: { agentId: true, status: true, amount: true, createdAt: true }
   });
@@ -291,13 +495,114 @@ app.get('/api/agents', async (req, res) => {
     if (t.createdAt > ag.lastSeen) ag.lastSeen = t.createdAt;
   }
 
-  const agents = Object.values(map).map(a => ({
-    ...a,
-    approvalRate: a.total > 0 ? ((a.approved / a.total) * 100).toFixed(1) : '0.0',
-    lastSeen: a.lastSeen
-  })).sort((a, b) => b.total - a.total);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const recent24hTxs = await prisma.transaction.findMany({
+    where: { status: 'APPROVED', createdAt: { gte: since } },
+    select: { agentId: true, amount: true }
+  });
+  const spentTodayMap: Record<string, number> = {};
+  for (const t of recent24hTxs) {
+    spentTodayMap[t.agentId] = (spentTodayMap[t.agentId] || 0) + t.amount;
+  }
+
+  const agents = dbAgents.map(ag => {
+    const stats = map[ag.id] || { total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: ag.createdAt };
+    return {
+      id: ag.id,
+      agentId: ag.id,
+      name: ag.name,
+      description: ag.description,
+      status: ag.status,
+      dailyBudget: ag.dailyBudget,
+      spentToday: Math.round((spentTodayMap[ag.id] || 0) * 100) / 100,
+      total: stats.total,
+      approved: stats.approved,
+      blocked: stats.blocked,
+      flagged: stats.flagged,
+      totalSpend: Math.round(stats.totalSpend * 100) / 100,
+      approvalRate: stats.total > 0 ? ((stats.approved / stats.total) * 100).toFixed(1) : '0.0',
+      lastSeen: stats.lastSeen
+    };
+  });
 
   return res.json(agents);
+});
+
+// Pause / Resume agent toggle
+app.patch('/api/agents/:id/pause', async (req, res) => {
+  const { id } = req.params;
+  const agent = await prisma.agent.findUnique({ where: { id } });
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const newStatus = agent.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED';
+  const updated = await prisma.agent.update({
+    where: { id },
+    data: { status: newStatus }
+  });
+
+  await prisma.policyHistory.create({
+    data: {
+      action: newStatus === 'PAUSED' ? 'AGENT_PAUSED' : 'AGENT_RESUMED',
+      detail: `Agent ${agent.name} (${id}) status changed to ${newStatus}`
+    }
+  });
+
+  io.emit('agent_updated', updated);
+  return res.json(updated);
+});
+
+app.put('/api/agents/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!['ACTIVE', 'PAUSED'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be ACTIVE or PAUSED' });
+  }
+
+  const agent = await prisma.agent.findUnique({ where: { id } });
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const updated = await prisma.agent.update({
+    where: { id },
+    data: { status }
+  });
+
+  await prisma.policyHistory.create({
+    data: {
+      action: status === 'PAUSED' ? 'AGENT_PAUSED' : 'AGENT_RESUMED',
+      detail: `Agent ${agent.name} (${id}) status set to ${status}`
+    }
+  });
+
+  io.emit('agent_updated', updated);
+  return res.json(updated);
+});
+
+// Edit per-agent daily budget
+app.patch('/api/agents/:id/budget', async (req, res) => {
+  const { id } = req.params;
+  const { dailyBudget } = req.body;
+  const budget = parseFloat(dailyBudget);
+  if (isNaN(budget) || budget < 0) {
+    return res.status(400).json({ error: 'Invalid budget amount' });
+  }
+
+  const agent = await prisma.agent.findUnique({ where: { id } });
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+  const updated = await prisma.agent.update({
+    where: { id },
+    data: { dailyBudget: budget }
+  });
+
+  await prisma.policyHistory.create({
+    data: {
+      action: 'AGENT_BUDGET_UPDATED',
+      detail: `Agent ${agent.name} (${id}) daily budget changed from $${agent.dailyBudget} to $${budget}`
+    }
+  });
+
+  io.emit('agent_updated', updated);
+  return res.json(updated);
 });
 
 // ─── Demo Reset ───────────────────────────────────────────────────────────────
@@ -306,6 +611,15 @@ app.post('/api/reset-demo', async (req, res) => {
     // 1. Wipe existing data
     await prisma.transaction.deleteMany({});
     await prisma.policyHistory.deleteMany({});
+    await prisma.agent.deleteMany({});
+
+    // Seed real Agent rows in Postgres
+    const defaultAgents = [
+      { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500 },
+      { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000 },
+      { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500 }
+    ];
+    await prisma.agent.createMany({ data: defaultAgents });
 
     // 2. Reset policy config (dailyBudget $2,000 — realistic against $1,000 tx limit)
     const POLICY = { maxTxLimit: 1000, dailyBudget: 2000, denylist: ['DarkWeb Compute', 'ShadyAI Services'] };
@@ -375,7 +689,11 @@ app.post('/api/reset-demo', async (req, res) => {
     }); }
 
     seeds.sort((a,b) => a.createdAt.getTime()-b.createdAt.getTime());
-    await prisma.transaction.createMany({ data: seeds });
+    const seedsWithRules = seeds.map(s => ({
+      ...s,
+      ruleResults: buildRuleResultsFallback(s)
+    }));
+    await prisma.transaction.createMany({ data: seedsWithRules });
 
     const approved = seeds.filter(t=>t.status==='APPROVED').length;
     const blocked  = seeds.filter(t=>t.status==='BLOCKED').length;

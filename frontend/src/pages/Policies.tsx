@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings2, Save, Plus, X, Clock, CheckCircle2, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, Shield } from 'lucide-react';
+import PolicySimulator from '../components/PolicySimulator';
 
 type PolicyConfig = {
   id: string;
@@ -377,6 +378,9 @@ export default function Policies() {
           </div>
         </div>
       </div>
+
+      {/* ── Policy Simulator Panel ───────────────────────────── */}
+      <PolicySimulator />
 
       {/* ── Audit Trail Timeline ─────────────────────────────── */}
        <div className="rounded-3xl overflow-hidden mb-12"

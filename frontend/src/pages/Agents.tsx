@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap } from 'lucide-react';
+import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X } from 'lucide-react';
 
 type AgentStat = {
+  id?: string;
   agentId: string;
+  name?: string;
+  description?: string;
+  status?: 'ACTIVE' | 'PAUSED';
+  dailyBudget?: number;
+  spentToday?: number;
   total: number;
   approved: number;
   blocked: number;
@@ -87,6 +93,9 @@ export default function Agents() {
   const [agents, setAgents] = useState<AgentStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const [editBudgetValue, setEditBudgetValue] = useState<string>('');
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/agents')
@@ -98,6 +107,41 @@ export default function Agents() {
       .catch(e => { console.error(e); setError(e.message); })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleTogglePause = async (agentId: string) => {
+    try {
+      setActionLoadingId(agentId);
+      const res = await fetch(`/api/agents/${agentId}/pause`, { method: 'PATCH' });
+      if (!res.ok) throw new Error('Failed to toggle pause');
+      const updated = await res.json();
+      setAgents(prev => prev.map(a => a.agentId === agentId ? { ...a, status: updated.status } : a));
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleSaveBudget = async (agentId: string) => {
+    try {
+      const budget = parseFloat(editBudgetValue);
+      if (isNaN(budget) || budget < 0) return alert('Enter a valid budget amount');
+      setActionLoadingId(agentId);
+      const res = await fetch(`/api/agents/${agentId}/budget`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dailyBudget: budget })
+      });
+      if (!res.ok) throw new Error('Failed to update daily budget');
+      const updated = await res.json();
+      setAgents(prev => prev.map(a => a.agentId === agentId ? { ...a, dailyBudget: updated.dailyBudget } : a));
+      setEditingAgentId(null);
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   const networkApproval = agents.length > 0
     ? (agents.reduce((s, a) => s + parseFloat(a.approvalRate), 0) / agents.length).toFixed(1)
@@ -226,12 +270,80 @@ export default function Agents() {
                       <div className="flex items-center gap-2">
                         <div className="font-mono font-bold text-lg" style={{ color: '#18181B' }}>{agent.agentId}</div>
                         <div className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider" 
-                          style={{ background: '#D1FAE5', color: '#059669', border: '1px solid rgba(16,185,129,0.2)' }}>
-                          Active
+                          style={{
+                            background: agent.status === 'PAUSED' ? '#FEE2E2' : '#D1FAE5',
+                            color: agent.status === 'PAUSED' ? '#DC2626' : '#059669',
+                            border: `1px solid ${agent.status === 'PAUSED' ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'}`
+                          }}>
+                          {agent.status === 'PAUSED' ? 'Paused' : 'Active'}
                         </div>
                       </div>
                     </div>
                     <RiskGauge score={estRisk} />
+                  </div>
+
+                  {/* Controls: Pause/Resume Toggle & Daily Budget */}
+                  <div className="flex items-center justify-between gap-2 mb-4 p-2.5 rounded-xl bg-white/70 border border-gray-200/60 shadow-xs">
+                    {/* Pause / Resume Button */}
+                    <button
+                      onClick={() => handleTogglePause(agent.agentId)}
+                      disabled={actionLoadingId === agent.agentId}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={{
+                        background: agent.status === 'PAUSED' ? '#10B981' : '#FEE2E2',
+                        color: agent.status === 'PAUSED' ? '#FFFFFF' : '#DC2626',
+                        border: `1px solid ${agent.status === 'PAUSED' ? '#059669' : '#FCA5A5'}`,
+                        cursor: actionLoadingId === agent.agentId ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {agent.status === 'PAUSED' ? <Play size={12} /> : <Pause size={12} />}
+                      <span>{agent.status === 'PAUSED' ? 'Resume Agent' : 'Pause Agent'}</span>
+                    </button>
+
+                    {/* Daily Budget (Editable) */}
+                    <div className="flex items-center gap-2 text-xs">
+                      {editingAgentId !== agent.agentId ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-gray-500 font-medium">Daily Limit:</span>
+                          <span className="font-mono font-bold text-gray-900">${(agent.dailyBudget || 500).toLocaleString()}</span>
+                          <button
+                            onClick={() => {
+                              setEditingAgentId(agent.agentId);
+                              setEditBudgetValue(String(agent.dailyBudget || 500));
+                            }}
+                            className="p-1 rounded hover:bg-gray-200 text-gray-500"
+                            title="Edit Daily Budget"
+                          >
+                            <Edit3 size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono text-gray-500">$</span>
+                          <input
+                            type="number"
+                            value={editBudgetValue}
+                            onChange={e => setEditBudgetValue(e.target.value)}
+                            className="w-16 px-1.5 py-0.5 border border-indigo-400 rounded text-xs font-mono font-bold outline-none"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleSaveBudget(agent.agentId)}
+                            className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                            title="Save"
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button
+                            onClick={() => setEditingAgentId(null)}
+                            className="p-1 rounded bg-gray-200 text-gray-600 hover:bg-gray-300"
+                            title="Cancel"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Metrics row */}
