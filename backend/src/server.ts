@@ -10,13 +10,37 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173'
+].filter(Boolean) as string[];
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 };
 
 const io = new Server(server, {
-  cors: corsOptions
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
 });
 
 app.use(cors(corsOptions));
@@ -104,47 +128,94 @@ function buildRuleResultsFallback(t: { amount: number; merchant: string; agentId
 }
 
 // ─── Policy Simulator (dry-run without saving or settling) ───────────────────
-app.post('/api/simulate', async (req, res) => {
-  const { amount, merchant, agentId } = req.body;
-  const numAmount = parseFloat(amount);
-  if (isNaN(numAmount) || numAmount <= 0) {
-    return res.status(400).json({ error: 'Valid payment amount is required' });
+app.post('/api/simulate', async (req, res, next) => {
+  try {
+    const { amount, merchant, agentId } = req.body;
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Valid positive payment amount is required' });
+    }
+    if (!merchant || typeof merchant !== 'string' || !merchant.trim()) {
+      return res.status(400).json({ error: 'Non-empty merchant name is required' });
+    }
+    if (agentId && (typeof agentId !== 'string' || !agentId.trim())) {
+      return res.status(400).json({ error: 'Valid agentId is required' });
+    }
+
+    const result = await evaluatePolicy({
+      amount: numAmount,
+      merchant: merchant.trim(),
+      agentId: (agentId && agentId.trim()) || 'agent-alpha-001'
+    });
+
+    // Dry run must not return a settlement ID or say "settled"
+    const isApproved = result.status === 'APPROVED';
+    const simulatedResult = {
+      ...result,
+      settlementId: null,
+      reason: isApproved
+        ? 'Would be approved (simulation, nothing executed)'
+        : result.reason,
+      isSimulated: true
+    };
+
+    return res.json(simulatedResult);
+  } catch (err) {
+    next(err);
   }
-  if (!merchant || !merchant.trim()) {
-    return res.status(400).json({ error: 'Merchant name is required' });
-  }
-
-  const result = await evaluatePolicy({
-    amount: numAmount,
-    merchant: merchant.trim(),
-    agentId: agentId || 'agent-alpha-001'
-  });
-
-  // Dry run must not return a settlement ID or say "settled"
-  const isApproved = result.status === 'APPROVED';
-  const simulatedResult = {
-    ...result,
-    settlementId: null,
-    reason: isApproved
-      ? 'Would be approved (simulation, nothing executed)'
-      : result.reason,
-    isSimulated: true
-  };
-
-  return res.json(simulatedResult);
 });
 
 // ─── Payment Intent (core) ────────────────────────────────────────────────────
-app.post('/api/payment-intent', async (req, res) => {
-  const { amount, merchant, agentId } = req.body;
-  const { status, reason, riskScore, settlementId, ruleResults } = await evaluatePolicy({ amount, merchant, agentId });
+app.post('/api/payment-intent', async (req, res, next) => {
+  try {
+    const { amount, merchant, agentId } = req.body;
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Valid positive payment amount is required' });
+    }
+    if (!merchant || typeof merchant !== 'string' || !merchant.trim()) {
+      return res.status(400).json({ error: 'Non-empty merchant name is required' });
+    }
+    if (!agentId || typeof agentId !== 'string' || !agentId.trim()) {
+      return res.status(400).json({ error: 'Valid agentId is required' });
+    }
 
-  const transaction = await prisma.transaction.create({
-    data: { amount, merchant, agentId, status, reason, riskScore, settlementId: settlementId || null, ruleResults }
-  });
+    // Optional API key enforcement (REQUIRE_API_KEY=true)
+    if (process.env.REQUIRE_API_KEY === 'true') {
+      const apiKey = req.header('X-API-Key');
+      if (!apiKey) {
+        return res.status(401).json({ error: 'X-API-Key header required' });
+      }
+      const agentRecord = await prisma.agent.findUnique({ where: { id: agentId.trim() } });
+      if (!agentRecord || agentRecord.apiKey !== apiKey) {
+        return res.status(403).json({ error: 'Invalid API key for agent' });
+      }
+    }
 
-  io.emit('new_transaction', transaction);
-  return res.status(200).json(transaction);
+    const { status, reason, riskScore, settlementId, ruleResults } = await evaluatePolicy({
+      amount: numAmount,
+      merchant: merchant.trim(),
+      agentId: agentId.trim()
+    });
+
+    const transaction = await prisma.transaction.create({
+      data: {
+        amount: numAmount,
+        merchant: merchant.trim(),
+        agentId: agentId.trim(),
+        status,
+        reason,
+        riskScore,
+        settlementId: settlementId || null,
+        ruleResults
+      }
+    });
+
+    io.emit('new_transaction', transaction);
+    return res.status(200).json(transaction);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
@@ -401,51 +472,80 @@ app.get('/api/policies', async (req, res) => {
   return res.json(config);
 });
 
-app.put('/api/policies', async (req, res) => {
-  let existing = await prisma.policyConfig.findFirst();
+app.put('/api/policies', async (req, res, next) => {
+  try {
+    let existing = await prisma.policyConfig.findFirst();
 
-  // Accept complete updates from the dashboard and safe partial updates from API clients.
-  // This also keeps legacy clients from clearing list fields they do not send.
-  const maxTxLimit = req.body.maxTxLimit ?? existing?.maxTxLimit ?? 1000;
-  const dailyBudget = req.body.dailyBudget ?? existing?.dailyBudget ?? 500;
-  const denylist = Array.isArray(req.body.denylist) ? req.body.denylist : (existing?.denylist ?? []);
-  const allowlistMode = req.body.allowlistMode ?? existing?.allowlistMode ?? false;
-  const allowlist = Array.isArray(req.body.allowlist) ? req.body.allowlist : (existing?.allowlist ?? []);
-  const maxRiskScore = req.body.maxRiskScore ?? existing?.maxRiskScore ?? 80;
+    if (req.body.maxTxLimit !== undefined) {
+      const limit = parseFloat(req.body.maxTxLimit);
+      if (isNaN(limit) || !Number.isFinite(limit) || limit <= 0) {
+        return res.status(400).json({ error: 'maxTxLimit must be a positive finite number' });
+      }
+    }
+    if (req.body.dailyBudget !== undefined) {
+      const budget = parseFloat(req.body.dailyBudget);
+      if (isNaN(budget) || !Number.isFinite(budget) || budget <= 0) {
+        return res.status(400).json({ error: 'dailyBudget must be a positive finite number' });
+      }
+    }
+    if (req.body.maxRiskScore !== undefined) {
+      const score = parseFloat(req.body.maxRiskScore);
+      if (isNaN(score) || !Number.isFinite(score) || score < 0 || score > 100) {
+        return res.status(400).json({ error: 'maxRiskScore must be a number between 0 and 100' });
+      }
+    }
+    if (req.body.denylist !== undefined && !Array.isArray(req.body.denylist)) {
+      return res.status(400).json({ error: 'denylist must be an array of strings' });
+    }
+    if (req.body.allowlist !== undefined && !Array.isArray(req.body.allowlist)) {
+      return res.status(400).json({ error: 'allowlist must be an array of strings' });
+    }
 
-  const changeDetails: string[] = [];
-  if (existing) {
-    if (existing.maxTxLimit !== maxTxLimit) changeDetails.push(`Per-Tx Limit: $${existing.maxTxLimit.toLocaleString()} → $${Number(maxTxLimit).toLocaleString()}`);
-    if (existing.dailyBudget !== dailyBudget) changeDetails.push(`Daily Budget: $${existing.dailyBudget.toLocaleString()} → $${Number(dailyBudget).toLocaleString()}`);
-    if (existing.maxRiskScore !== maxRiskScore) changeDetails.push(`Risk Threshold: ${existing.maxRiskScore} → ${maxRiskScore}`);
-    const addedMerchants = (denylist as string[]).filter(m => !existing!.denylist.includes(m));
-    const removedMerchants = existing.denylist.filter(m => !(denylist as string[]).includes(m));
-    if (addedMerchants.length) changeDetails.push(`Denylist added: ${addedMerchants.join(', ')}`);
-    if (removedMerchants.length) changeDetails.push(`Denylist removed: ${removedMerchants.join(', ')}`);
-    if (existing.allowlistMode !== allowlistMode) changeDetails.push(`Allowlist mode: ${allowlistMode ? 'ENABLED' : 'DISABLED'}`);
-    const addedAllowlist = (allowlist as string[]).filter(m => !existing!.allowlist.includes(m));
-    if (addedAllowlist.length) changeDetails.push(`Allowlist added: ${addedAllowlist.join(', ')}`);
+    // Accept complete updates from the dashboard and safe partial updates from API clients.
+    // This also keeps legacy clients from clearing list fields they do not send.
+    const maxTxLimit = req.body.maxTxLimit !== undefined ? parseFloat(req.body.maxTxLimit) : (existing?.maxTxLimit ?? 1000);
+    const dailyBudget = req.body.dailyBudget !== undefined ? parseFloat(req.body.dailyBudget) : (existing?.dailyBudget ?? 500);
+    const denylist = Array.isArray(req.body.denylist) ? req.body.denylist : (existing?.denylist ?? []);
+    const allowlistMode = req.body.allowlistMode ?? existing?.allowlistMode ?? false;
+    const allowlist = Array.isArray(req.body.allowlist) ? req.body.allowlist : (existing?.allowlist ?? []);
+    const maxRiskScore = req.body.maxRiskScore !== undefined ? parseFloat(req.body.maxRiskScore) : (existing?.maxRiskScore ?? 80);
+
+    const changeDetails: string[] = [];
+    if (existing) {
+      if (existing.maxTxLimit !== maxTxLimit) changeDetails.push(`Per-Tx Limit: $${existing.maxTxLimit.toLocaleString()} → $${Number(maxTxLimit).toLocaleString()}`);
+      if (existing.dailyBudget !== dailyBudget) changeDetails.push(`Daily Budget: $${existing.dailyBudget.toLocaleString()} → $${Number(dailyBudget).toLocaleString()}`);
+      if (existing.maxRiskScore !== maxRiskScore) changeDetails.push(`Risk Threshold: ${existing.maxRiskScore} → ${maxRiskScore}`);
+      const addedMerchants = (denylist as string[]).filter(m => !existing!.denylist.includes(m));
+      const removedMerchants = existing.denylist.filter(m => !(denylist as string[]).includes(m));
+      if (addedMerchants.length) changeDetails.push(`Denylist added: ${addedMerchants.join(', ')}`);
+      if (removedMerchants.length) changeDetails.push(`Denylist removed: ${removedMerchants.join(', ')}`);
+      if (existing.allowlistMode !== allowlistMode) changeDetails.push(`Allowlist mode: ${allowlistMode ? 'ENABLED' : 'DISABLED'}`);
+      const addedAllowlist = (allowlist as string[]).filter(m => !existing!.allowlist.includes(m));
+      if (addedAllowlist.length) changeDetails.push(`Allowlist added: ${addedAllowlist.join(', ')}`);
+    }
+
+    let config;
+    if (existing) {
+      config = await prisma.policyConfig.update({
+        where: { id: existing.id },
+        data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore }
+      });
+    } else {
+      config = await prisma.policyConfig.create({ data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore } });
+      changeDetails.push(`Initial config: $${maxTxLimit} tx limit, $${dailyBudget} budget`);
+    }
+
+    if (changeDetails.length > 0) {
+      await prisma.policyHistory.create({
+        data: { action: 'POLICY_UPDATED', detail: changeDetails.join(' | ') }
+      });
+    }
+
+    io.emit('policy_updated', config);
+    return res.json(config);
+  } catch (err) {
+    next(err);
   }
-
-  let config;
-  if (existing) {
-    config = await prisma.policyConfig.update({
-      where: { id: existing.id },
-      data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore }
-    });
-  } else {
-    config = await prisma.policyConfig.create({ data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore } });
-    changeDetails.push(`Initial config: $${maxTxLimit} tx limit, $${dailyBudget} budget`);
-  }
-
-  if (changeDetails.length > 0) {
-    await prisma.policyHistory.create({
-      data: { action: 'POLICY_UPDATED', detail: changeDetails.join(' | ') }
-    });
-  }
-
-  io.emit('policy_updated', config);
-  return res.json(config);
 });
 
 // ─── Policy History ───────────────────────────────────────────────────────────
@@ -458,74 +558,79 @@ app.get('/api/policies/history', async (req, res) => {
 });
 
 // ─── Agents ───────────────────────────────────────────────────────────────────
-app.get('/api/agents', async (req, res) => {
-  let dbAgents = await prisma.agent.findMany({
-    orderBy: { createdAt: 'asc' }
-  });
+app.get('/api/agents', async (req, res, next) => {
+  try {
+    let dbAgents = await prisma.agent.findMany({
+      orderBy: { createdAt: 'asc' }
+    });
 
-  // If no agents yet, auto-bootstrap default agents in DB
-  if (dbAgents.length === 0) {
-    const defaultAgents = [
-      { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500 },
-      { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000 },
-      { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500 }
-    ];
-    await prisma.agent.createMany({ data: defaultAgents });
-    dbAgents = await prisma.agent.findMany({ orderBy: { createdAt: 'asc' } });
-  }
-
-  const txs = await prisma.transaction.findMany({
-    select: { agentId: true, status: true, amount: true, createdAt: true }
-  });
-
-  const map: Record<string, {
-    agentId: string; total: number; approved: number; blocked: number;
-    flagged: number; totalSpend: number; lastSeen: Date;
-  }> = {};
-
-  for (const t of txs) {
-    if (!map[t.agentId]) {
-      map[t.agentId] = { agentId: t.agentId, total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: t.createdAt };
+    // If no agents yet, auto-bootstrap default agents in DB
+    if (dbAgents.length === 0) {
+      const defaultAgents = [
+        { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500, apiKey: 'sk_live_alpha_001_c8f92a' },
+        { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000, apiKey: 'sk_live_beta_002_d3a17e' },
+        { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500, apiKey: 'sk_live_gamma_003_e5b49f' }
+      ];
+      await prisma.agent.createMany({ data: defaultAgents });
+      dbAgents = await prisma.agent.findMany({ orderBy: { createdAt: 'asc' } });
     }
-    const ag = map[t.agentId];
-    ag.total++;
-    if (t.status === 'APPROVED') { ag.approved++; ag.totalSpend += t.amount; }
-    if (t.status === 'BLOCKED') ag.blocked++;
-    if (t.status === 'FLAGGED') ag.flagged++;
-    if (t.createdAt > ag.lastSeen) ag.lastSeen = t.createdAt;
+
+    const txs = await prisma.transaction.findMany({
+      select: { agentId: true, status: true, amount: true, createdAt: true }
+    });
+
+    const map: Record<string, {
+      agentId: string; total: number; approved: number; blocked: number;
+      flagged: number; totalSpend: number; lastSeen: Date;
+    }> = {};
+
+    for (const t of txs) {
+      if (!map[t.agentId]) {
+        map[t.agentId] = { agentId: t.agentId, total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: t.createdAt };
+      }
+      const ag = map[t.agentId];
+      ag.total++;
+      if (t.status === 'APPROVED') { ag.approved++; ag.totalSpend += t.amount; }
+      if (t.status === 'BLOCKED') ag.blocked++;
+      if (t.status === 'FLAGGED') ag.flagged++;
+      if (t.createdAt > ag.lastSeen) ag.lastSeen = t.createdAt;
+    }
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recent24hTxs = await prisma.transaction.findMany({
+      where: { status: 'APPROVED', createdAt: { gte: since } },
+      select: { agentId: true, amount: true }
+    });
+    const spentTodayMap: Record<string, number> = {};
+    for (const t of recent24hTxs) {
+      spentTodayMap[t.agentId] = (spentTodayMap[t.agentId] || 0) + t.amount;
+    }
+
+    const agents = dbAgents.map(ag => {
+      const stats = map[ag.id] || { total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: ag.createdAt };
+      return {
+        id: ag.id,
+        agentId: ag.id,
+        name: ag.name,
+        description: ag.description,
+        status: ag.status,
+        dailyBudget: ag.dailyBudget,
+        apiKey: ag.apiKey || `sk_live_${ag.id.replace(/-/g, '_')}`,
+        spentToday: Math.round((spentTodayMap[ag.id] || 0) * 100) / 100,
+        total: stats.total,
+        approved: stats.approved,
+        blocked: stats.blocked,
+        flagged: stats.flagged,
+        totalSpend: Math.round(stats.totalSpend * 100) / 100,
+        approvalRate: stats.total > 0 ? ((stats.approved / stats.total) * 100).toFixed(1) : '0.0',
+        lastSeen: stats.lastSeen
+      };
+    });
+
+    return res.json(agents);
+  } catch (err) {
+    next(err);
   }
-
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const recent24hTxs = await prisma.transaction.findMany({
-    where: { status: 'APPROVED', createdAt: { gte: since } },
-    select: { agentId: true, amount: true }
-  });
-  const spentTodayMap: Record<string, number> = {};
-  for (const t of recent24hTxs) {
-    spentTodayMap[t.agentId] = (spentTodayMap[t.agentId] || 0) + t.amount;
-  }
-
-  const agents = dbAgents.map(ag => {
-    const stats = map[ag.id] || { total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: ag.createdAt };
-    return {
-      id: ag.id,
-      agentId: ag.id,
-      name: ag.name,
-      description: ag.description,
-      status: ag.status,
-      dailyBudget: ag.dailyBudget,
-      spentToday: Math.round((spentTodayMap[ag.id] || 0) * 100) / 100,
-      total: stats.total,
-      approved: stats.approved,
-      blocked: stats.blocked,
-      flagged: stats.flagged,
-      totalSpend: Math.round(stats.totalSpend * 100) / 100,
-      approvalRate: stats.total > 0 ? ((stats.approved / stats.total) * 100).toFixed(1) : '0.0',
-      lastSeen: stats.lastSeen
-    };
-  });
-
-  return res.json(agents);
 });
 
 // Pause / Resume agent toggle
@@ -615,9 +720,9 @@ app.post('/api/reset-demo', async (req, res) => {
 
     // Seed real Agent rows in Postgres
     const defaultAgents = [
-      { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500 },
-      { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000 },
-      { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500 }
+      { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500, apiKey: 'sk_live_alpha_001_c8f92a' },
+      { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000, apiKey: 'sk_live_beta_002_d3a17e' },
+      { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500, apiKey: 'sk_live_gamma_003_e5b49f' }
     ];
     await prisma.agent.createMany({ data: defaultAgents });
 
@@ -708,8 +813,32 @@ app.post('/api/reset-demo', async (req, res) => {
   }
 });
 
-// ─── Healthcheck ──────────────────────────────────────────────────────────────
-app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+// ─── Healthcheck (with real DB connection check) ─────────────────────────────
+app.get('/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.status(200).json({
+      status: 'ok',
+      database: 'connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    return res.status(503).json({
+      status: 'error',
+      database: 'disconnected',
+      error: 'Database health check failed'
+    });
+  }
+});
+
+// ─── Global Error Handler (no stack traces in production) ─────────────────────
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Server error:', err?.message || err);
+  const isProd = process.env.NODE_ENV === 'production';
+  return res.status(500).json({
+    error: isProd ? 'Internal server error' : (err?.message || 'Unknown error occurred')
+  });
+});
 
 io.on('connection', (socket) => {
   console.log('Frontend connected:', socket.id);

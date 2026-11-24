@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X } from 'lucide-react';
+import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X, Key, Copy, Eye, EyeOff } from 'lucide-react';
 
 type AgentStat = {
   id?: string;
@@ -9,6 +9,7 @@ type AgentStat = {
   description?: string;
   status?: 'ACTIVE' | 'PAUSED';
   dailyBudget?: number;
+  apiKey?: string;
   spentToday?: number;
   total: number;
   approved: number;
@@ -96,6 +97,14 @@ export default function Agents() {
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editBudgetValue, setEditBudgetValue] = useState<string>('');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [revealedKeyId, setRevealedKeyId] = useState<string | null>(null);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+
+  const handleCopyApiKey = (agentId: string, key: string) => {
+    navigator.clipboard.writeText(key);
+    setCopiedKeyId(agentId);
+    setTimeout(() => setCopiedKeyId(null), 2000);
+  };
 
   useEffect(() => {
     fetch('/api/agents')
@@ -280,6 +289,37 @@ export default function Agents() {
                       </div>
                     </div>
                     <RiskGauge score={estRisk} />
+                  </div>
+
+                  {/* API Key Box (Masked with copy & reveal toggle) */}
+                  <div className="flex items-center justify-between gap-2 mb-4 px-3 py-2 rounded-xl bg-white/80 border border-gray-200/80 shadow-xs">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <Key size={13} className="text-gray-400 shrink-0" />
+                      <span className="text-[11px] font-mono text-gray-500 font-semibold">API Key:</span>
+                      <span className="text-xs font-mono font-bold text-gray-800 truncate">
+                        {agent.apiKey ? (
+                          revealedKeyId === agent.agentId ? agent.apiKey : `${agent.apiKey.slice(0, 10)}••••••••${agent.apiKey.slice(-4)}`
+                        ) : 'sk_live_••••••••••••'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {agent.apiKey && (
+                        <button
+                          onClick={() => setRevealedKeyId(revealedKeyId === agent.agentId ? null : agent.agentId)}
+                          className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors"
+                          title={revealedKeyId === agent.agentId ? 'Hide API Key' : 'Reveal API Key'}
+                        >
+                          {revealedKeyId === agent.agentId ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleCopyApiKey(agent.agentId, agent.apiKey || `sk_live_${agent.agentId.replace(/-/g, '_')}`)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-600 transition-colors"
+                        title="Copy API Key"
+                      >
+                        {copiedKeyId === agent.agentId ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Controls: Pause/Resume Toggle & Daily Budget */}

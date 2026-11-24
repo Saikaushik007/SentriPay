@@ -11,7 +11,7 @@ export default function Integrate() {
 
   const curlCode = `curl -X POST https://api.sentripay.dev/api/payment-intent \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer sec_live_agent_token" \\
+  -H "X-API-Key: sk_live_alpha_001_c8f92a" \\
   -d '{
     "agentId": "agent-alpha-001",
     "merchant": "AWS Compute",
@@ -19,12 +19,12 @@ export default function Integrate() {
   }'`;
 
   const jsCode = `// SentriPay Autonomous Payment Intent
-async function submitPaymentIntent({ agentId, merchant, amount }) {
+async function submitPaymentIntent({ agentId, merchant, amount, apiKey = "sk_live_alpha_001_c8f92a" }) {
   const response = await fetch("https://api.sentripay.dev/api/payment-intent", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer sec_live_agent_token"
+      "X-API-Key": apiKey
     },
     body: JSON.stringify({ agentId, merchant, amount })
   });
@@ -48,11 +48,11 @@ async function submitPaymentIntent({ agentId, merchant, amount }) {
 
   const pythonCode = `import requests
 
-def send_payment_intent(agent_id: str, merchant: str, amount: float):
+def send_payment_intent(agent_id: str, merchant: str, amount: float, api_key: str = "sk_live_alpha_001_c8f92a"):
     url = "https://api.sentripay.dev/api/payment-intent"
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer sec_live_agent_token"
+        "X-API-Key": api_key
     }
     payload = {
         "agentId": agent_id,

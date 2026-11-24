@@ -17,6 +17,11 @@ model Transaction {
   settlementId String?  // Set on APPROVED transactions
   ruleResults  Json?
   createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([agentId])
+  @@index([merchant])
 }
 
 model PolicyConfig {
@@ -43,6 +48,7 @@ model Agent {
   description String?
   status      String   @default("ACTIVE") // 'ACTIVE' | 'PAUSED'
   dailyBudget Float    @default(500)
+  apiKey      String?  @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

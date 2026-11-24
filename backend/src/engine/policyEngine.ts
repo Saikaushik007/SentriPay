@@ -34,30 +34,26 @@ export type PolicyResult = {
   ruleResults: RuleResults;
 };
 
-export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResult> {
-  const now = new Date();
+export type PolicyEngineContext = {
+  agent: { id: string; name?: string; status: string; dailyBudget: number } | null;
+  config: {
+    maxTxLimit: number;
+    dailyBudget: number;
+    denylist: string[];
+    allowlistMode: boolean;
+    allowlist: string[];
+    maxRiskScore: number;
+  };
+  agent24hSpend: number;
+  rolling24hSpend: number;
+  recent1sCount: number;
+};
 
-  // Load config from DB (or bootstrap defaults)
-  let config = await prisma.policyConfig.findFirst();
-  if (!config) {
-    config = await prisma.policyConfig.create({
-      data: {
-        maxTxLimit: 1000,
-        dailyBudget: 2000,
-        denylist: ['DarkWeb Compute', 'ShadyAI Services'],
-        allowlistMode: false,
-        allowlist: [],
-        maxRiskScore: 80,
-      }
-    });
-  }
-
+export function evaluateRules(tx: TransactionRequest, ctx: PolicyEngineContext): PolicyResult {
+  const { agent, config, agent24hSpend, rolling24hSpend, recent1sCount } = ctx;
   const rules: RuleEvaluation[] = [];
 
   // ── Rule 0: Agent Pause Check ─────────────────────────────────────────────
-  const agent = await prisma.agent.findUnique({
-    where: { id: tx.agentId }
-  });
   const isAgentPaused = agent ? agent.status === 'PAUSED' : false;
   rules.push({
     rule: 'Agent Status',
@@ -69,22 +65,15 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
 
   // ── Rule 0b: Per-agent daily budget ───────────────────────────────────────
   let agentBudgetFailed = false;
-  let agentSpent = 0;
   if (agent && agent.dailyBudget > 0) {
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const agentAgg = await prisma.transaction.aggregate({
-      _sum: { amount: true },
-      where: { agentId: tx.agentId, status: 'APPROVED', createdAt: { gt: oneDayAgo } }
-    });
-    agentSpent = agentAgg._sum.amount || 0;
-    agentBudgetFailed = (agentSpent + tx.amount > agent.dailyBudget);
+    agentBudgetFailed = (agent24hSpend + tx.amount > agent.dailyBudget);
     rules.push({
       rule: 'Agent Daily Budget',
       passed: !agentBudgetFailed,
       limitValue: `$${agent.dailyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      actualValue: `$${(agentSpent + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${agentSpent.toFixed(2)} spent)`,
+      actualValue: `$${(agent24hSpend + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${agent24hSpend.toFixed(2)} spent)`,
       message: agentBudgetFailed
-        ? `Exceeds agent daily budget of $${agent.dailyBudget.toLocaleString()} ($${agentSpent.toFixed(2)} already spent)`
+        ? `Exceeds agent daily budget of $${agent.dailyBudget.toLocaleString()} ($${agent24hSpend.toFixed(2)} already spent)`
         : 'Spend within agent daily budget'
     });
   } else {
@@ -146,34 +135,24 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
   });
 
   // ── Rule 4: Frequency cap (>3 tx/sec per agent) ───────────────────────────
-  const oneSecondAgo = new Date(now.getTime() - 1000);
-  const recentCount = await prisma.transaction.count({
-    where: { agentId: tx.agentId, createdAt: { gt: oneSecondAgo } }
-  });
-  const freqCapFailed = recentCount >= 3;
+  const freqCapFailed = recent1sCount >= 3;
   rules.push({
     rule: 'Velocity Frequency Cap',
     passed: !freqCapFailed,
     limitValue: '<= 3 tx/sec',
-    actualValue: `${recentCount + 1} tx/sec`,
+    actualValue: `${recent1sCount + 1} tx/sec`,
     message: freqCapFailed ? 'Frequency cap exceeded — too many requests in 1s window' : 'Velocity within safety limits'
   });
 
   // ── Rule 5: Rolling 24h budget ────────────────────────────────────────────
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const agg = await prisma.transaction.aggregate({
-    _sum: { amount: true },
-    where: { status: 'APPROVED', createdAt: { gt: oneDayAgo } }
-  });
-  const dailySpend = agg._sum.amount || 0;
-  const budgetFailed = dailySpend + tx.amount > config.dailyBudget;
+  const budgetFailed = rolling24hSpend + tx.amount > config.dailyBudget;
   rules.push({
     rule: 'Rolling 24h Budget',
     passed: !budgetFailed,
     limitValue: `$${config.dailyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    actualValue: `$${(dailySpend + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${dailySpend.toFixed(2)} already spent)`,
+    actualValue: `$${(rolling24hSpend + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${rolling24hSpend.toFixed(2)} already spent)`,
     message: budgetFailed
-      ? `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${dailySpend.toFixed(2)} already spent)`
+      ? `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${rolling24hSpend.toFixed(2)} already spent)`
       : '24h spend within budget'
   });
 
@@ -251,7 +230,7 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
   if (agentBudgetFailed) {
     return {
       status: 'BLOCKED',
-      reason: `Exceeds agent daily budget of $${agent!.dailyBudget.toLocaleString()} ($${agentSpent.toFixed(2)} already spent)`,
+      reason: `Exceeds agent daily budget of $${agent!.dailyBudget.toLocaleString()} ($${agent24hSpend.toFixed(2)} already spent)`,
       riskScore: 75,
       ruleResults
     };
@@ -296,7 +275,7 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
   if (budgetFailed) {
     return {
       status: 'BLOCKED',
-      reason: `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${dailySpend.toFixed(2)} already spent)`,
+      reason: `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${rolling24hSpend.toFixed(2)} already spent)`,
       riskScore: 60,
       ruleResults
     };
@@ -320,4 +299,56 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
     settlementId,
     ruleResults
   };
+}
+
+export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResult> {
+  const now = new Date();
+
+  // Load config from DB (or bootstrap defaults)
+  let config = await prisma.policyConfig.findFirst();
+  if (!config) {
+    config = await prisma.policyConfig.create({
+      data: {
+        maxTxLimit: 1000,
+        dailyBudget: 2000,
+        denylist: ['DarkWeb Compute', 'ShadyAI Services'],
+        allowlistMode: false,
+        allowlist: [],
+        maxRiskScore: 80,
+      }
+    });
+  }
+
+  const agent = await prisma.agent.findUnique({
+    where: { id: tx.agentId }
+  });
+
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  let agent24hSpend = 0;
+  if (agent && agent.dailyBudget > 0) {
+    const agentAgg = await prisma.transaction.aggregate({
+      _sum: { amount: true },
+      where: { agentId: tx.agentId, status: 'APPROVED', createdAt: { gt: oneDayAgo } }
+    });
+    agent24hSpend = agentAgg._sum.amount || 0;
+  }
+
+  const agg = await prisma.transaction.aggregate({
+    _sum: { amount: true },
+    where: { status: 'APPROVED', createdAt: { gt: oneDayAgo } }
+  });
+  const rolling24hSpend = agg._sum.amount || 0;
+
+  const oneSecondAgo = new Date(now.getTime() - 1000);
+  const recent1sCount = await prisma.transaction.count({
+    where: { agentId: tx.agentId, createdAt: { gt: oneSecondAgo } }
+  });
+
+  return evaluateRules(tx, {
+    agent,
+    config,
+    agent24hSpend,
+    rolling24hSpend,
+    recent1sCount
+  });
 }
