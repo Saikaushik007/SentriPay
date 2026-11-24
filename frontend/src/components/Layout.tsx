@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X } from 'lucide-react';
+import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw } from 'lucide-react';
 import { useSocketStatus } from '../lib/api';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -125,6 +125,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {label}
             </NavLink>
           ))}
+        </div>
+      )}
+
+      {/* Render cold-start indicator */}
+      {(socketStatus === 'Offline' || socketStatus === 'Reconnecting') && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex items-center justify-center gap-2 text-xs text-amber-800 font-medium">
+          <RefreshCw size={13} className="animate-spin text-amber-600 shrink-0" />
+          <span>Waking up server (Render free tier cold-start ~30s)... The gateway will automatically connect once active.</span>
         </div>
       )}
 
