@@ -384,6 +384,130 @@ app.get('/api/transactions/money-flow', async (req, res) => {
   });
 });
 
+// ─── Stage 3: Risk Heatmap & Spend Forecast (100% Real Postgres Data) ───────
+app.get('/api/analytics/risk-heatmap', async (req, res) => {
+  // Query all transactions from Postgres to build real merchant-by-hour heatmap
+  const txs = await prisma.transaction.findMany({
+    select: {
+      merchant: true,
+      amount: true,
+      status: true,
+      riskScore: true,
+      createdAt: true
+    }
+  });
+
+  // Unique merchants
+  const merchantTotals = new Map<string, number>();
+  txs.forEach(t => merchantTotals.set(t.merchant, (merchantTotals.get(t.merchant) || 0) + 1));
+  const topMerchants = [...merchantTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 7)
+    .map(entry => entry[0]);
+
+  // Group by merchant and hour (0..23)
+  // matrix: { [merchant]: { [hour]: { count: number, avgRisk: number, totalSpend: number, blocked: number } } }
+  const matrix: Record<string, Record<number, { count: number; avgRisk: number; totalSpend: number; blocked: number }>> = {};
+  for (const m of topMerchants) {
+    matrix[m] = {};
+    for (let h = 0; h < 24; h++) {
+      matrix[m][h] = { count: 0, avgRisk: 0, totalSpend: 0, blocked: 0 };
+    }
+  }
+
+  for (const t of txs) {
+    if (!matrix[t.merchant]) continue;
+    const h = new Date(t.createdAt).getHours();
+    const cell = matrix[t.merchant][h];
+    const newCount = cell.count + 1;
+    const risk = t.riskScore ?? (t.status === 'BLOCKED' ? 90 : t.status === 'FLAGGED' ? 70 : 15);
+    cell.avgRisk = Math.round((cell.avgRisk * cell.count + risk) / newCount);
+    cell.count = newCount;
+    cell.totalSpend += t.amount;
+    if (t.status === 'BLOCKED') cell.blocked++;
+  }
+
+  return res.json({
+    merchants: topMerchants,
+    matrix
+  });
+});
+
+app.get('/api/analytics/spend-forecast', async (req, res) => {
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // Fetch real agents and transactions from Postgres
+  const [agents, recentApproved] = await Promise.all([
+    prisma.agent.findMany(),
+    prisma.transaction.findMany({
+      where: {
+        status: 'APPROVED',
+        createdAt: { gte: dayAgo }
+      },
+      select: {
+        agentId: true,
+        amount: true,
+        createdAt: true
+      }
+    })
+  ]);
+
+  // Current hour of day (0..23)
+  const currentHour = now.getHours();
+  const hoursRemaining = 24 - currentHour;
+
+  const forecasts = agents.map(agent => {
+    const agentTxs = recentApproved.filter(t => t.agentId === agent.id);
+    const currentSpend = agentTxs.reduce((sum, t) => sum + t.amount, 0);
+
+    // Calculate hourly velocity over the active period
+    const hourlyBurnRate = agentTxs.length > 0 ? currentSpend / Math.max(1, currentHour + 1) : 0;
+    const projectedEODSpend = Math.round((currentSpend + (hourlyBurnRate * hoursRemaining)) * 100) / 100;
+    const budget = agent.dailyBudget || 500;
+    const projectedBreach = projectedEODSpend > budget;
+    const breachHour = projectedBreach && hourlyBurnRate > 0
+      ? Math.min(23, currentHour + Math.ceil((budget - currentSpend) / hourlyBurnRate))
+      : null;
+
+    // 24h trajectory line points
+    const trajectory = Array.from({ length: 24 }, (_, h) => {
+      let spend = 0;
+      if (h <= currentHour) {
+        spend = agentTxs
+          .filter(t => new Date(t.createdAt).getHours() <= h)
+          .reduce((s, t) => s + t.amount, 0);
+      } else {
+        spend = currentSpend + (hourlyBurnRate * (h - currentHour));
+      }
+      return {
+        hour: `${String(h).padStart(2, '0')}:00`,
+        actualOrProjected: Math.round(spend * 100) / 100,
+        budgetLine: budget,
+        isProjected: h > currentHour
+      };
+    });
+
+    return {
+      agentId: agent.id,
+      name: agent.name,
+      currentSpend: Math.round(currentSpend * 100) / 100,
+      dailyBudget: budget,
+      hourlyBurnRate: Math.round(hourlyBurnRate * 100) / 100,
+      projectedEODSpend,
+      projectedBreach,
+      breachHour: breachHour !== null ? `${String(breachHour).padStart(2, '0')}:00` : null,
+      burnPercentage: budget > 0 ? Math.round((projectedEODSpend / budget) * 100) : 0,
+      trajectory
+    };
+  });
+
+  return res.json({
+    generatedAt: now,
+    forecasts
+  });
+});
+
 // ─── Time-series chart data ───────────────────────────────────────────────────
 app.get('/api/transactions/chart', async (req, res) => {
   // Get last 50 transactions ordered oldest-first for charting
