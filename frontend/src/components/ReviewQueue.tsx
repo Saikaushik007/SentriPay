@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { useToast } from '../context/ToastContext';
+import { colors, shadows, radii } from '../theme';
 
 interface Transaction {
   id: string;
@@ -61,11 +62,12 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
 
   return (
     <div 
-      className="rounded-3xl overflow-hidden mb-8 border"
+      className="overflow-hidden mb-8 border"
       style={{
         background: 'linear-gradient(135deg, #FFFBEB 0%, #FFFFFF 100%)',
-        borderColor: '#FDE68A',
-        boxShadow: '0 10px 30px -15px rgba(245, 158, 11, 0.22)'
+        borderColor: colors.flagged.border,
+        boxShadow: shadows.glowWarning,
+        borderRadius: radii.xxl,
       }}
     >
       {/* Top Header */}
@@ -75,8 +77,12 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
       >
         <div className="flex items-center gap-3">
           <div 
-            className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
-            style={{ background: '#FEF3C7', color: '#D97706' }}
+            className="w-9 h-9 flex items-center justify-center shadow-sm"
+            style={{
+              background: colors.flagged.light,
+              color: colors.flagged.text,
+              borderRadius: radii.md,
+            }}
           >
             <ShieldAlert size={19} />
           </div>

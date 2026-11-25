@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw } from 'lucide-react';
 import { useSocketStatus } from '../lib/api';
+import { colors, shadows, radii, spacing } from '../theme';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -15,48 +16,123 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="min-h-screen text-textMain flex flex-col font-sans" style={{ background: 'linear-gradient(135deg, #F5F3FF 0%, #F0F9FF 46%, #F0FDF4 100%)' }}>
-      {/* ── Mesh hero background ── */}
-      <div
-        className="fixed top-0 left-0 right-0 h-[480px] pointer-events-none z-0 mesh-fade"
-        style={{ background:
-          'radial-gradient(ellipse 80% 60% at 5% -10%, rgba(129,140,248,0.20) 0%, transparent 60%),' +
-          'radial-gradient(ellipse 55% 40% at 52% -8%, rgba(244,114,182,0.15) 0%, transparent 55%),' +
-          'radial-gradient(ellipse 65% 50% at 98% -8%, rgba(56,189,248,0.18) 0%, transparent 55%)'
-        }}
-      />
+    <div
+      className="min-h-screen text-textMain flex flex-col font-sans relative overflow-x-hidden"
+      style={{
+        background: colors.pageGradient,
+      }}
+    >
+      {/* ── Slowly Drifting Blurred Color Blobs (Lavender, Sky, Mint, Peach) ── */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Blob 1: Lavender (top-left) */}
+        <div
+          className="drift-blob-1 absolute rounded-full"
+          style={{
+            top: '-80px',
+            left: '-80px',
+            width: '460px',
+            height: '460px',
+            background: 'radial-gradient(circle, rgba(196,181,253,0.38) 0%, rgba(237,233,254,0.15) 70%, transparent 100%)',
+            filter: 'blur(70px)',
+          }}
+        />
+
+        {/* Blob 2: Sky Blue (top-right) */}
+        <div
+          className="drift-blob-2 absolute rounded-full"
+          style={{
+            top: '12%',
+            right: '-100px',
+            width: '440px',
+            height: '440px',
+            background: 'radial-gradient(circle, rgba(125,211,252,0.34) 0%, rgba(224,242,254,0.12) 70%, transparent 100%)',
+            filter: 'blur(75px)',
+          }}
+        />
+
+        {/* Blob 3: Mint Green (middle-left) */}
+        <div
+          className="drift-blob-3 absolute rounded-full"
+          style={{
+            top: '52%',
+            left: '3%',
+            width: '420px',
+            height: '420px',
+            background: 'radial-gradient(circle, rgba(134,239,172,0.30) 0%, rgba(220,252,231,0.12) 70%, transparent 100%)',
+            filter: 'blur(80px)',
+          }}
+        />
+
+        {/* Blob 4: Soft Peach (bottom-right) */}
+        <div
+          className="drift-blob-4 absolute rounded-full"
+          style={{
+            bottom: '-60px',
+            right: '8%',
+            width: '480px',
+            height: '480px',
+            background: 'radial-gradient(circle, rgba(254,215,170,0.36) 0%, rgba(255,237,213,0.14) 70%, transparent 100%)',
+            filter: 'blur(85px)',
+          }}
+        />
+      </div>
 
       {/* ── Sticky Header ── */}
-      <header className="sticky top-0 z-50 h-[68px] flex items-center justify-between px-4 sm:px-8
-                         bg-white/80 backdrop-blur-xl border-b border-border/60">
+      <header
+        className="sticky top-0 z-50 h-[68px] flex items-center justify-between px-4 sm:px-8 border-b transition-all backdrop-blur-xl"
+        style={{
+          background: 'rgba(255, 255, 255, 0.82)',
+          borderColor: 'rgba(226, 232, 240, 0.7)',
+          boxShadow: shadows.sm,
+        }}
+      >
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
-          <div className="w-8 h-8 rounded-xl bg-gradient-primary flex items-center justify-center shadow-glow-primary">
-            <Layers size={16} className="text-white" strokeWidth={2.5} />
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-white"
+            style={{
+              background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
+              boxShadow: shadows.glowPrimary,
+              borderRadius: radii.md,
+            }}
+          >
+            <Layers size={16} strokeWidth={2.5} />
           </div>
           <span className="font-display font-bold text-[1.15rem] tracking-tight">
             Sentri
-            <span className="bg-gradient-to-r from-primary to-violet bg-clip-text text-transparent">
+            <span style={{
+              background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}>
               Pay
             </span>
           </span>
         </Link>
 
         {/* Desktop Pill Nav */}
-        <nav className="hidden md:flex items-center gap-1 bg-white/70 backdrop-blur-sm border border-border/60 p-1.5 rounded-full shadow-sm">
+        <nav
+          className="hidden md:flex items-center gap-1 border p-1.5 rounded-full"
+          style={{
+            background: 'rgba(255, 255, 255, 0.72)',
+            borderColor: 'rgba(226, 232, 240, 0.7)',
+            boxShadow: shadows.sm,
+            borderRadius: radii.full,
+          }}
+        >
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold
-                 transition-all duration-200 select-none ${
-                  isActive
-                    ? 'bg-gradient-primary text-white shadow-glow-primary'
-                    : 'text-textMuted hover:text-textMain hover:bg-gray-100/80'
-                }`
-              }
+              style={({ isActive }) => ({
+                background: isActive ? 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)' : 'transparent',
+                color: isActive ? '#FFFFFF' : colors.textMuted,
+                boxShadow: isActive ? shadows.glowPrimary : 'none',
+                borderRadius: radii.full,
+                padding: `${spacing[2]} ${spacing[5]}`,
+              })}
+              className="flex items-center gap-2 text-sm font-semibold transition-all duration-200 select-none hover:text-gray-900"
             >
               <Icon size={15} />
               {label}
@@ -69,22 +145,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-bold font-mono transition-colors"
             style={{
-              background: socketStatus === 'Connected' ? '#ECFDF5' : socketStatus === 'Reconnecting' ? '#FFFBEB' : '#FEF2F2',
-              borderColor: socketStatus === 'Connected' ? '#A7F3D0' : socketStatus === 'Reconnecting' ? '#FDE68A' : '#FECACA',
-              color: socketStatus === 'Connected' ? '#059669' : socketStatus === 'Reconnecting' ? '#D97706' : '#DC2626'
+              background: socketStatus === 'Connected' ? colors.approved.light : socketStatus === 'Reconnecting' ? colors.flagged.light : colors.blocked.light,
+              borderColor: socketStatus === 'Connected' ? colors.approved.border : socketStatus === 'Reconnecting' ? colors.flagged.border : colors.blocked.border,
+              color: socketStatus === 'Connected' ? colors.approved.text : socketStatus === 'Reconnecting' ? colors.flagged.text : colors.blocked.text,
+              borderRadius: radii.full,
             }}
           >
             <span className="relative flex h-2 w-2">
               {socketStatus !== 'Offline' && (
                 <span
                   className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
-                  style={{ background: socketStatus === 'Connected' ? '#10B981' : '#F59E0B' }}
+                  style={{ background: socketStatus === 'Connected' ? colors.approved.base : colors.flagged.base }}
                 />
               )}
               <span
                 className="relative inline-flex rounded-full h-2 w-2"
                 style={{
-                  background: socketStatus === 'Connected' ? '#10B981' : socketStatus === 'Reconnecting' ? '#F59E0B' : '#EF4444'
+                  background: socketStatus === 'Connected' ? colors.approved.base : socketStatus === 'Reconnecting' ? colors.flagged.base : colors.blocked.base
                 }}
               />
             </span>
@@ -101,6 +178,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="md:hidden p-2 rounded-xl border border-gray-200 bg-white/80 text-gray-700 hover:bg-gray-100 transition-colors"
             aria-label="Toggle menu"
+            style={{ borderRadius: radii.md }}
           >
             {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
@@ -109,7 +187,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200 px-6 py-4 flex flex-col gap-2 shadow-lg animate-in fade-in slide-in-from-top-4 duration-200">
+        <div
+          className="md:hidden z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200 px-6 py-4 flex flex-col gap-2 shadow-lg animate-in fade-in slide-in-from-top-4 duration-200"
+          style={{ boxShadow: shadows.md }}
+        >
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -120,6 +201,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   isActive ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'
                 }`
               }
+              style={{ borderRadius: radii.md }}
             >
               <Icon size={16} />
               {label}
@@ -130,7 +212,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Render cold-start indicator */}
       {(socketStatus === 'Offline' || socketStatus === 'Reconnecting') && (
-        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex items-center justify-center gap-2 text-xs text-amber-800 font-medium">
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 flex items-center justify-center gap-2 text-xs text-amber-800 font-medium z-10 relative">
           <RefreshCw size={13} className="animate-spin text-amber-600 shrink-0" />
           <span>Waking up server (Render free tier cold-start ~30s)... The gateway will automatically connect once active.</span>
         </div>

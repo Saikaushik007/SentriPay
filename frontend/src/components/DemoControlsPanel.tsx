@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
 import { useToast } from '../context/ToastContext';
+import { colors, shadows, radii } from '../theme';
 
 interface DemoControlsPanelProps {
   onDataChanged?: () => void;
@@ -165,19 +166,24 @@ export default function DemoControlsPanel({ onDataChanged }: DemoControlsPanelPr
 
   return (
     <div
-      className="rounded-3xl border overflow-hidden transition-all duration-300"
+      className="border overflow-hidden transition-all duration-300"
       style={{
         background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-        borderColor: '#E2E8F0',
-        boxShadow: '0 8px 30px -10px rgba(0, 0, 0, 0.06)'
+        borderColor: colors.border,
+        boxShadow: shadows.md,
+        borderRadius: radii.xxl,
       }}
     >
       {/* Top Header / Collapse Bar */}
       <div className="p-5 flex items-center justify-between flex-wrap gap-4 border-b border-gray-100 bg-white/70">
         <div className="flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"
-            style={{ background: 'linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%)' }}
+            className="w-10 h-10 flex items-center justify-center text-indigo-600"
+            style={{
+              background: 'linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%)',
+              borderRadius: radii.xl,
+              boxShadow: shadows.sm,
+            }}
           >
             <Sliders size={20} />
           </div>

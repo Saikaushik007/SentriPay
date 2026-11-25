@@ -154,3 +154,54 @@ input[type="range"]::-webkit-slider-thumb:hover {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #D4D4D8; border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
+
+/* ─── Slowly Drifting Blurred Color Blobs (Lavender, Sky, Mint, Peach) ───────── */
+@keyframes driftBlob1 {
+  0% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(45px, 35px) scale(1.08); }
+  100% { transform: translate(-25px, 60px) scale(0.96); }
+}
+
+@keyframes driftBlob2 {
+  0% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(-50px, 40px) scale(1.10); }
+  100% { transform: translate(35px, -25px) scale(0.94); }
+}
+
+@keyframes driftBlob3 {
+  0% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(40px, -45px) scale(1.07); }
+  100% { transform: translate(-45px, 25px) scale(1.05); }
+}
+
+@keyframes driftBlob4 {
+  0% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(-35px, -30px) scale(1.06); }
+  100% { transform: translate(40px, 35px) scale(0.95); }
+}
+
+.drift-blob-1 {
+  animation: driftBlob1 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.drift-blob-2 {
+  animation: driftBlob2 34s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.drift-blob-3 {
+  animation: driftBlob3 30s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.drift-blob-4 {
+  animation: driftBlob4 32s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drift-blob-1,
+  .drift-blob-2,
+  .drift-blob-3,
+  .drift-blob-4 {
+    animation: none !important;
+  }
+}
