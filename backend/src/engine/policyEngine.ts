@@ -404,7 +404,11 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
 
   // ── Category cap: aggregate 24h approved spend in the same category ────────
   let category24hSpend = 0;
-  const categoryCaps = config.categoryCaps as Record<string, number> | undefined;
+  const rawCategoryCaps = (config as any)?.categoryCaps;
+  const categoryCaps = (rawCategoryCaps && typeof rawCategoryCaps === 'object' && !Array.isArray(rawCategoryCaps))
+    ? (rawCategoryCaps as Record<string, number>)
+    : undefined;
+
   if (categoryCaps && Object.keys(categoryCaps).length > 0) {
     const txCategory = getMerchantCategory(tx.merchant);
     if (categoryCaps[txCategory] !== undefined) {
@@ -420,15 +424,11 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
     }
   }
 
-  const parsedCaps = (config.categoryCaps && typeof config.categoryCaps === 'object' && !Array.isArray(config.categoryCaps))
-    ? (config.categoryCaps as Record<string, number>)
-    : undefined;
-
   return evaluateRules(tx, {
     agent,
     config: {
       ...config,
-      categoryCaps: parsedCaps
+      categoryCaps
     },
     agent24hSpend,
     rolling24hSpend,
