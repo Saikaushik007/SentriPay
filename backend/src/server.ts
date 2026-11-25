@@ -355,6 +355,35 @@ app.post('/api/transactions/:id/review', async (req, res) => {
   return res.json(updatedTx);
 });
 
+// ─── Money-Flow Map (Real Agent-to-Merchant Real Transactions) ────────────────
+app.get('/api/transactions/money-flow', async (req, res) => {
+  const limit = Math.min(parseInt(String(req.query.limit || '15'), 10), 50);
+  const txs = await prisma.transaction.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      amount: true,
+      merchant: true,
+      agentId: true,
+      status: true,
+      reason: true,
+      riskScore: true,
+      createdAt: true
+    }
+  });
+
+  return res.json({
+    transactions: txs,
+    summary: {
+      total: txs.length,
+      approved: txs.filter(t => t.status === 'APPROVED').length,
+      blocked: txs.filter(t => t.status === 'BLOCKED').length,
+      flagged: txs.filter(t => t.status === 'FLAGGED').length
+    }
+  });
+});
+
 // ─── Time-series chart data ───────────────────────────────────────────────────
 app.get('/api/transactions/chart', async (req, res) => {
   // Get last 50 transactions ordered oldest-first for charting

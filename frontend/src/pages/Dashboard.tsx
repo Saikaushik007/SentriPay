@@ -9,6 +9,7 @@ import {
 import TransactionDrawer from '../components/TransactionDrawer';
 import DemoControlsPanel from '../components/DemoControlsPanel';
 import ReviewQueue from '../components/ReviewQueue';
+import MoneyFlowMap from '../components/MoneyFlowMap';
 import { apiUrl, socket } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -780,6 +781,12 @@ export default function Dashboard() {
               <ArchNode icon={<Banknote size={20} />} label="Settlement" dark />
             </div>
           </div>
+
+          {/* Money-Flow Map */}
+          <MoneyFlowMap onSelectTx={(id) => {
+            const found = transactions.find(t => t.id === id);
+            if (found) setSelectedTx(found);
+          }} />
 
           {/* Traffic Volume Chart */}
           <div style={{ borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#F0F9FF,#FFFFFF)', border: '1px solid #BAE6FD', boxShadow: '0 8px 24px -14px rgba(14,165,233,0.28)' }}>
