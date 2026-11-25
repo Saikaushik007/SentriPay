@@ -402,11 +402,37 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
     where: { agentId: tx.agentId, createdAt: { gt: oneSecondAgo } }
   });
 
+  // ── Category cap: aggregate 24h approved spend in the same category ────────
+  let category24hSpend = 0;
+  const categoryCaps = config.categoryCaps as Record<string, number> | undefined;
+  if (categoryCaps && Object.keys(categoryCaps).length > 0) {
+    const txCategory = getMerchantCategory(tx.merchant);
+    if (categoryCaps[txCategory] !== undefined) {
+      // Collect all transactions in last 24h and derive their categories in JS
+      // (avoids storing category as a DB column)
+      const recentTxs = await prisma.transaction.findMany({
+        where: { status: 'APPROVED', createdAt: { gt: oneDayAgo } },
+        select: { merchant: true, amount: true }
+      });
+      category24hSpend = recentTxs
+        .filter(t => getMerchantCategory(t.merchant) === txCategory)
+        .reduce((sum, t) => sum + t.amount, 0);
+    }
+  }
+
+  const parsedCaps = (config.categoryCaps && typeof config.categoryCaps === 'object' && !Array.isArray(config.categoryCaps))
+    ? (config.categoryCaps as Record<string, number>)
+    : undefined;
+
   return evaluateRules(tx, {
     agent,
-    config,
+    config: {
+      ...config,
+      categoryCaps: parsedCaps
+    },
     agent24hSpend,
     rolling24hSpend,
-    recent1sCount
+    recent1sCount,
+    category24hSpend
   });
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Save, Plus, X, Clock, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, Shield, RotateCcw } from 'lucide-react';
+import { Settings2, Save, Plus, X, Clock, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, Shield, RotateCcw, Layers } from 'lucide-react';
 import PolicySimulator from '../components/PolicySimulator';
 import { apiUrl } from '../lib/api';
 import { useToast } from '../context/ToastContext';
@@ -13,6 +13,7 @@ type PolicyConfig = {
   allowlistMode: boolean;
   allowlist: string[];
   maxRiskScore: number;
+  categoryCaps?: Record<string, number>;
   updatedAt: string;
 };
 type HistoryEntry = { id: string; action: string; detail: string; createdAt: string };
@@ -69,6 +70,7 @@ export default function Policies() {
           allowlistMode: draft.allowlistMode,
           allowlist: draft.allowlist,
           maxRiskScore: draft.maxRiskScore,
+          categoryCaps: draft.categoryCaps ?? {},
         })
       });
       if (!res.ok) throw new Error(`Failed to save policy (HTTP ${res.status})`);
@@ -215,25 +217,77 @@ export default function Policies() {
                   wash="rgba(245,158,11,0.03)" shadowColor="rgba(245,158,11,0.15)"
                   onChange={v => draft && setDraft({ ...draft, maxRiskScore: v })}
                 />
-                {/* Static */}
-                <div className="rounded-2xl p-5 flex items-center justify-between relative overflow-hidden"
+                {/* Category Spend Caps */}
+                <div className="rounded-2xl p-5 relative overflow-hidden transition-all duration-300"
                   style={{
-                    background: 'rgba(16,185,129,0.03)',
+                    background: 'rgba(99,102,241,0.03)',
                     border: '1px solid #E4E4E7',
-                    boxShadow: '0 4px 16px -4px rgba(16,185,129,0.15)',
-                    borderLeft: '4px solid #10B981'
+                    boxShadow: '0 4px 16px -4px rgba(99,102,241,0.15)',
+                    borderLeft: '4px solid #6366F1'
                   }}>
-                  <div className="ml-2">
-                    <div className="flex items-center gap-2">
-                      <div className="font-semibold text-sm text-gray-900">Frequency Cap</div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
-                        style={{ background: '#D1FAE5', color: '#059669' }}>System Rule</span>
+                  <div className="flex items-start justify-between ml-2 mb-3">
+                    <div className="flex-1 mr-4">
+                      <div className="flex items-center gap-2">
+                        <div className="font-bold text-sm text-gray-900">Merchant Category Caps</div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                          style={{ background: '#EEF2FF', color: '#4F46E5' }}>Rule 5b</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1 leading-snug">
+                        24-hour rolling spend caps segregated by merchant category.
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 mt-0.5">Velocity limit per agent (hardcoded)</div>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#EEF2FF', color: '#6366F1' }}>
+                      <Layers size={16} />
+                    </div>
                   </div>
-                  <div className="font-mono font-bold text-sm px-4 py-2 rounded-xl"
-                    style={{ background: '#D1FAE5', color: '#059669', border: '1px solid rgba(16,185,129,0.2)' }}>
-                    3 tx / sec
+
+                  <div className="ml-2 space-y-2.5 pt-2">
+                    {[
+                      { key: 'Cloud Infrastructure', defaultVal: 1500, label: 'Cloud Infrastructure (AWS, Vercel, Cloudflare)' },
+                      { key: 'AI & LLM Services', defaultVal: 800, label: 'AI & LLM Services (OpenAI, Anthropic)' },
+                      { key: 'Communications', defaultVal: 400, label: 'Communications (SendGrid, Twilio)' },
+                      { key: 'DevOps & Tooling', defaultVal: 600, label: 'DevOps & Tooling (GitHub, Datadog)' }
+                    ].map(cat => {
+                      const currentVal = (isEditing ? draft?.categoryCaps : policies?.categoryCaps)?.[cat.key];
+                      const hasCap = currentVal !== undefined && currentVal > 0;
+                      return (
+                        <div key={cat.key} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-gray-100 text-xs">
+                          <span className="font-medium text-gray-700 truncate max-w-[210px] sm:max-w-xs">{cat.key}</span>
+                          {isEditing ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-gray-400 font-mono">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={50}
+                                placeholder="None"
+                                value={currentVal ?? ''}
+                                onChange={e => {
+                                  if (!draft) return;
+                                  const num = parseFloat(e.target.value);
+                                  const updatedCaps = { ...(draft.categoryCaps || {}) };
+                                  if (isNaN(num) || num <= 0) {
+                                    delete updatedCaps[cat.key];
+                                  } else {
+                                    updatedCaps[cat.key] = num;
+                                  }
+                                  setDraft({ ...draft, categoryCaps: updatedCaps });
+                                }}
+                                className="w-20 px-2 py-1 border rounded-lg text-xs font-mono font-bold text-gray-900 text-right outline-none focus:border-indigo-500"
+                              />
+                            </div>
+                          ) : (
+                            <span className="font-mono font-bold px-2.5 py-0.5 rounded-md"
+                              style={{
+                                background: hasCap ? '#EEF2FF' : '#F4F4F5',
+                                color: hasCap ? '#4F46E5' : '#71717A'
+                              }}>
+                              {hasCap ? `$${currentVal.toLocaleString()}/24h` : 'No Cap'}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </>

@@ -32,6 +32,7 @@ model PolicyConfig {
   allowlistMode  Boolean  @default(false)
   allowlist      String[] @default([])
   maxRiskScore   Int      @default(80)
+  categoryCaps   Json?
   updatedAt      DateTime @updatedAt
 }
 

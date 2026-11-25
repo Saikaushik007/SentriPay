@@ -538,6 +538,9 @@ app.put('/api/policies', async (req, res, next) => {
     if (req.body.allowlist !== undefined && !Array.isArray(req.body.allowlist)) {
       return res.status(400).json({ error: 'allowlist must be an array of strings' });
     }
+    if (req.body.categoryCaps !== undefined && (typeof req.body.categoryCaps !== 'object' || req.body.categoryCaps === null || Array.isArray(req.body.categoryCaps))) {
+      return res.status(400).json({ error: 'categoryCaps must be an object mapping categories to spend limits' });
+    }
 
     // Accept complete updates from the dashboard and safe partial updates from API clients.
     // This also keeps legacy clients from clearing list fields they do not send.
@@ -547,12 +550,14 @@ app.put('/api/policies', async (req, res, next) => {
     const allowlistMode = req.body.allowlistMode ?? existing?.allowlistMode ?? false;
     const allowlist = Array.isArray(req.body.allowlist) ? req.body.allowlist : (existing?.allowlist ?? []);
     const maxRiskScore = req.body.maxRiskScore !== undefined ? parseFloat(req.body.maxRiskScore) : (existing?.maxRiskScore ?? 80);
+    const categoryCaps = req.body.categoryCaps !== undefined ? req.body.categoryCaps : (existing?.categoryCaps ?? null);
 
     const changeDetails: string[] = [];
     if (existing) {
       if (existing.maxTxLimit !== maxTxLimit) changeDetails.push(`Per-Tx Limit: $${existing.maxTxLimit.toLocaleString()} → $${Number(maxTxLimit).toLocaleString()}`);
       if (existing.dailyBudget !== dailyBudget) changeDetails.push(`Daily Budget: $${existing.dailyBudget.toLocaleString()} → $${Number(dailyBudget).toLocaleString()}`);
       if (existing.maxRiskScore !== maxRiskScore) changeDetails.push(`Risk Threshold: ${existing.maxRiskScore} → ${maxRiskScore}`);
+      if (req.body.categoryCaps !== undefined) changeDetails.push(`Category caps updated`);
       const addedMerchants = (denylist as string[]).filter(m => !existing!.denylist.includes(m));
       const removedMerchants = existing.denylist.filter(m => !(denylist as string[]).includes(m));
       if (addedMerchants.length) changeDetails.push(`Denylist added: ${addedMerchants.join(', ')}`);
@@ -566,10 +571,10 @@ app.put('/api/policies', async (req, res, next) => {
     if (existing) {
       config = await prisma.policyConfig.update({
         where: { id: existing.id },
-        data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore }
+        data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore, categoryCaps }
       });
     } else {
-      config = await prisma.policyConfig.create({ data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore } });
+      config = await prisma.policyConfig.create({ data: { maxTxLimit, dailyBudget, denylist, allowlistMode, allowlist, maxRiskScore, categoryCaps } });
       changeDetails.push(`Initial config: $${maxTxLimit} tx limit, $${dailyBudget} budget`);
     }
 
