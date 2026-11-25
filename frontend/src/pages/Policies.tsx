@@ -19,7 +19,7 @@ type PolicyConfig = {
 type HistoryEntry = { id: string; action: string; detail: string; createdAt: string };
 
 function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-200 rounded-2xl ${className}`} />;
+  return <div className={`skeleton-shimmer rounded-2xl ${className}`} />;
 }
 
 export default function Policies() {

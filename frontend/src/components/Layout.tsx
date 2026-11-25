@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw } from 'lucide-react';
 import { useSocketStatus } from '../lib/api';
 import { colors, shadows, radii, spacing } from '../theme';
@@ -110,9 +111,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </span>
         </Link>
 
-        {/* Desktop Pill Nav */}
+        {/* Desktop Pill Nav with Sliding Indicator */}
         <nav
-          className="hidden md:flex items-center gap-1 border p-1.5 rounded-full"
+          className="hidden md:flex items-center gap-1 border p-1.5 rounded-full relative"
           style={{
             background: 'rgba(255, 255, 255, 0.72)',
             borderColor: 'rgba(226, 232, 240, 0.7)',
@@ -125,17 +126,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               key={to}
               to={to}
               end={to === '/'}
+              className="relative flex items-center gap-2 text-sm font-semibold select-none transition-colors duration-200"
               style={({ isActive }) => ({
-                background: isActive ? 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)' : 'transparent',
                 color: isActive ? '#FFFFFF' : colors.textMuted,
-                boxShadow: isActive ? shadows.glowPrimary : 'none',
                 borderRadius: radii.full,
                 padding: `${spacing[2]} ${spacing[5]}`,
               })}
-              className="flex items-center gap-2 text-sm font-semibold transition-all duration-200 select-none hover:text-gray-900"
             >
-              <Icon size={15} />
-              {label}
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeNavPill"
+                      className="absolute inset-0"
+                      style={{
+                        background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
+                        boxShadow: shadows.glowPrimary,
+                        borderRadius: radii.full,
+                        zIndex: 0,
+                      }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Icon size={15} />
+                    {label}
+                  </span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>

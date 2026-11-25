@@ -23,7 +23,7 @@ type AgentStat = {
 };
 
 function Skeleton({ className = '' }) {
-  return <div className={`animate-pulse rounded-3xl bg-gray-200 ${className}`} />;
+  return <div className={`skeleton-shimmer rounded-3xl ${className}`} />;
 }
 
 // Pure SVG half-donut risk gauge — no recharts, no crash

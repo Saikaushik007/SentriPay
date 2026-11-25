@@ -122,10 +122,76 @@ input[type="range"] {
 /* Premium control language shared by every page. */
 button {
   font-family: 'Inter', system-ui, sans-serif;
-  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+  transition: transform .18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow .18s ease, filter .18s ease;
 }
-button:not(:disabled):hover { transform: translateY(-2px) scale(1.015); }
-button:focus-visible, input:focus-visible { outline: 3px solid rgba(79,70,229,.22); outline-offset: 2px; }
+button:not(:disabled):hover { transform: scale(1.02); }
+button:not(:disabled):active { transform: scale(0.98); }
+button:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 3px solid rgba(79, 70, 229, 0.35);
+  outline-offset: 2px;
+}
+
+/* Category Card Lift & Glow States */
+.card-lift {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-lift:hover {
+  transform: translateY(-3px);
+}
+.card-lift-primary:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -6px rgba(79, 70, 229, 0.25) !important;
+}
+.card-lift-success:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -6px rgba(16, 185, 129, 0.25) !important;
+}
+.card-lift-danger:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -6px rgba(244, 63, 94, 0.25) !important;
+}
+.card-lift-warning:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -6px rgba(245, 158, 11, 0.25) !important;
+}
+.card-lift-violet:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -6px rgba(124, 58, 237, 0.25) !important;
+}
+
+/* Table Row Tinted Hover & Left Accent Bar */
+tr.tx-row {
+  position: relative;
+  transition: background-color 0.15s ease, border-left-color 0.15s ease;
+  border-left: 3px solid transparent;
+}
+tr.tx-row:hover {
+  background-color: rgba(248, 250, 252, 0.95);
+  border-left: 3px solid #6366F1;
+}
+tr.tx-row.status-approved:hover {
+  background-color: rgba(236, 253, 245, 0.7);
+  border-left: 3px solid #10B981;
+}
+tr.tx-row.status-blocked:hover {
+  background-color: rgba(254, 242, 242, 0.7);
+  border-left: 3px solid #F43F5E;
+}
+tr.tx-row.status-flagged:hover {
+  background-color: rgba(255, 251, 235, 0.7);
+  border-left: 3px solid #F59E0B;
+}
+
+/* Shimmer Skeletons */
+@keyframes shimmerSweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, rgba(241, 245, 249, 0.85) 25%, rgba(226, 232, 240, 0.95) 50%, rgba(241, 245, 249, 0.85) 75%);
+  background-size: 200% 100%;
+  animation: shimmerSweep 1.6s infinite linear;
+}
 input:not([type="range"]) {
   border-radius: 12px;
   border: 1px solid #D4D4D8;
@@ -198,10 +264,28 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   .drift-blob-1,
   .drift-blob-2,
   .drift-blob-3,
   .drift-blob-4 {
     animation: none !important;
+  }
+  .card-lift:hover,
+  .card-lift-primary:hover,
+  .card-lift-success:hover,
+  .card-lift-danger:hover,
+  .card-lift-warning:hover,
+  .card-lift-violet:hover {
+    transform: none !important;
+  }
+  button:not(:disabled):hover,
+  button:not(:disabled):active {
+    transform: none !important;
   }
 }

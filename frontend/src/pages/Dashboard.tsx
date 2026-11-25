@@ -354,10 +354,18 @@ export default function Dashboard() {
                       transition={{ duration: 0.35 }}
                       onClick={() => setSelectedTx(tx)}
                       title="Click to view decision explainer & policy rules"
-                      className="grid grid-cols-12 gap-2 px-3 py-3 items-center rounded-xl hover:bg-violet-50/70 hover:shadow-sm cursor-pointer transition-all"
+                      className={`grid grid-cols-12 gap-2 px-3 py-3 items-center rounded-xl cursor-pointer transition-all hover:shadow-xs ${
+                        tx.status === 'APPROVED' ? 'hover:bg-emerald-50/60' :
+                        tx.status === 'BLOCKED' ? 'hover:bg-rose-50/60' :
+                        'hover:bg-amber-50/60'
+                      }`}
                       style={{
                         borderBottom: '1px solid #F4F4F5',
-                        borderLeft: isLive ? '3px solid #10B981' : '3px solid transparent',
+                        borderLeft: isLive
+                          ? '3px solid #10B981'
+                          : tx.status === 'APPROVED' ? '3px solid rgba(16,185,129,0.3)'
+                          : tx.status === 'BLOCKED' ? '3px solid rgba(244,63,94,0.3)'
+                          : '3px solid rgba(245,158,11,0.3)',
                         background: isLive ? 'rgba(16,185,129,0.03)' : undefined
                       }}>
                       {/* Live pulse dot vs Baseline badge */}
@@ -579,11 +587,14 @@ function AnimatedNumber({ value, formatter }: { value: number, formatter?: (v: n
 
 function StatCard({ value, label, color, mono }: { value: string | number; label: string; color: string; mono?: boolean }) {
   const isNumber = typeof value === 'number';
+  const liftClass = color === '#10B981' ? 'card-lift-success' : color === '#F43F5E' ? 'card-lift-danger' : color === '#7C3AED' ? 'card-lift-violet' : 'card-lift-primary';
   return (
-    <div className="p-6 rounded-2xl cursor-default transition-all duration-200 relative overflow-hidden"
-      style={{ background: color === '#10B981' ? 'linear-gradient(135deg,#ECFDF5,#FFFFFF)' : color === '#F43F5E' ? 'linear-gradient(135deg,#FFF1F2,#FFFFFF)' : color === '#7C3AED' ? 'linear-gradient(135deg,#FFF7ED,#FFFFFF)' : 'linear-gradient(135deg,#EEF2FF,#FFFFFF)', border: `1px solid ${color}30`, boxShadow: `0 8px 22px -16px ${color}88` }}
-      onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-4px)')}
-      onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
+    <div className={`p-6 rounded-2xl cursor-default transition-all duration-200 relative overflow-hidden card-lift ${liftClass}`}
+      style={{
+        background: color === '#10B981' ? 'linear-gradient(135deg,#ECFDF5,#FFFFFF)' : color === '#F43F5E' ? 'linear-gradient(135deg,#FFF1F2,#FFFFFF)' : color === '#7C3AED' ? 'linear-gradient(135deg,#FFF7ED,#FFFFFF)' : 'linear-gradient(135deg,#EEF2FF,#FFFFFF)',
+        border: `1px solid ${color}30`,
+        boxShadow: `0 8px 22px -16px ${color}88`
+      }}
     >
       {/* accent top bar */}
       <div className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl" style={{ background: color, opacity: 0.85 }} />
