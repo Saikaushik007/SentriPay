@@ -150,4 +150,24 @@ describe('Policy Engine Rules Verification', () => {
     assert.match(result.reason, /Risk score 80\/100 exceeds threshold/);
     assert.equal(result.riskScore, 80);
   });
+
+  it('10. Blocks transaction exceeding category spend cap (Rule 5b)', () => {
+    const tx: TransactionRequest = {
+      agentId: 'agent-alpha-001',
+      merchant: 'OpenAI API', // Category: AI & LLM Services
+      amount: 300
+    };
+    const ctx: PolicyEngineContext = {
+      ...baseContext,
+      config: {
+        ...baseConfig,
+        categoryCaps: { 'AI & LLM Services': 500 }
+      },
+      category24hSpend: 350 // 350 + 300 = 650 > 500
+    };
+    const result = evaluateRules(tx, ctx);
+    assert.equal(result.status, 'BLOCKED');
+    assert.match(result.reason, /Exceeds 24h cap for category "AI & LLM Services"/);
+    assert.equal(result.riskScore, 70);
+  });
 });

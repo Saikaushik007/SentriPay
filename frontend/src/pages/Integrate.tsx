@@ -3,6 +3,7 @@ import {
   Code, Copy, Check, Terminal, FileCode, 
   XCircle, AlertTriangle, CheckCircle2 
 } from 'lucide-react';
+import X402FlowVisualizer from '../components/X402FlowVisualizer';
 
 export default function Integrate() {
   const [copiedCurl, setCopiedCurl] = useState(false);
@@ -112,6 +113,9 @@ def send_payment_intent(agent_id: str, merchant: str, amount: float, api_key: st
           </p>
         </div>
       </div>
+
+      {/* Live x402 Protocol Flow Visualizer */}
+      <X402FlowVisualizer />
 
       {/* Decision Status Matrix Section */}
       <div className="space-y-4">

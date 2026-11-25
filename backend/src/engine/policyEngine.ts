@@ -34,6 +34,26 @@ export type PolicyResult = {
   ruleResults: RuleResults;
 };
 
+export function getMerchantCategory(merchant: string): string {
+  const m = merchant.toLowerCase();
+  if (m.includes('aws') || m.includes('vercel') || m.includes('cloudflare') || m.includes('compute')) {
+    return 'Cloud Infrastructure';
+  }
+  if (m.includes('openai') || m.includes('anthropic') || m.includes('ai') || m.includes('hugging')) {
+    return 'AI & LLM Services';
+  }
+  if (m.includes('sendgrid') || m.includes('twilio') || m.includes('email') || m.includes('sms')) {
+    return 'Communications';
+  }
+  if (m.includes('stripe') || m.includes('paypal') || m.includes('payment')) {
+    return 'Financial Services';
+  }
+  if (m.includes('github') || m.includes('datadog') || m.includes('sentry') || m.includes('pagerduty') || m.includes('notion')) {
+    return 'DevOps & Tooling';
+  }
+  return 'General Services';
+}
+
 export type PolicyEngineContext = {
   agent: { id: string; name?: string; status: string; dailyBudget: number } | null;
   config: {
@@ -43,10 +63,12 @@ export type PolicyEngineContext = {
     allowlistMode: boolean;
     allowlist: string[];
     maxRiskScore: number;
+    categoryCaps?: Record<string, number>;
   };
   agent24hSpend: number;
   rolling24hSpend: number;
   recent1sCount: number;
+  category24hSpend?: number;
 };
 
 export function evaluateRules(tx: TransactionRequest, ctx: PolicyEngineContext): PolicyResult {
@@ -155,6 +177,33 @@ export function evaluateRules(tx: TransactionRequest, ctx: PolicyEngineContext):
       ? `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${rolling24hSpend.toFixed(2)} already spent)`
       : '24h spend within budget'
   });
+
+  // ── Rule 5b: Merchant Category Spend Cap ──────────────────────────────────
+  const category = getMerchantCategory(tx.merchant);
+  const categoryCap = config.categoryCaps ? config.categoryCaps[category] : undefined;
+  const currentCatSpend = ctx.category24hSpend ?? 0;
+  let categoryCapFailed = false;
+
+  if (categoryCap !== undefined && categoryCap > 0) {
+    categoryCapFailed = (currentCatSpend + tx.amount > categoryCap);
+    rules.push({
+      rule: 'Merchant Category Cap',
+      passed: !categoryCapFailed,
+      limitValue: `$${categoryCap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${category})`,
+      actualValue: `$${(currentCatSpend + tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ($${currentCatSpend.toFixed(2)} spent)`,
+      message: categoryCapFailed
+        ? `Exceeds 24h cap for category "${category}" (Limit: $${categoryCap.toLocaleString()}, Attempted: $${(currentCatSpend + tx.amount).toFixed(2)})`
+        : `Spend within "${category}" category budget`
+    });
+  } else {
+    rules.push({
+      rule: 'Merchant Category Cap',
+      passed: true,
+      limitValue: 'No category cap',
+      actualValue: `${category} ($${tx.amount.toFixed(2)})`,
+      message: `No spend cap assigned to category "${category}"`
+    });
+  }
 
   // ── Rule 6: Risk score calculation & breakdown ────────────────────────────
   const knownMerchants = [
@@ -277,6 +326,15 @@ export function evaluateRules(tx: TransactionRequest, ctx: PolicyEngineContext):
       status: 'BLOCKED',
       reason: `Exceeds rolling 24h budget of $${config.dailyBudget.toLocaleString()} (${rolling24hSpend.toFixed(2)} already spent)`,
       riskScore: 60,
+      ruleResults
+    };
+  }
+
+  if (categoryCapFailed) {
+    return {
+      status: 'BLOCKED',
+      reason: `Exceeds 24h cap for category "${category}" (Limit: $${categoryCap!.toLocaleString()}, Attempted: $${(currentCatSpend + tx.amount).toFixed(2)})`,
+      riskScore: 70,
       ruleResults
     };
   }

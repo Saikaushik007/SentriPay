@@ -218,6 +218,44 @@ app.post('/api/payment-intent', async (req, res, next) => {
   }
 });
 
+// ─── x402 Protocol Mock Protected Resource (HTTP 402 Flow Demo) ───────────────
+app.get('/api/x402/resource', async (req, res) => {
+  const proof = req.header('X-Payment-Proof');
+
+  if (!proof) {
+    return res.status(402).json({
+      error: 'Payment Required',
+      status: 402,
+      protocol: 'x402-v1',
+      settlement: 'simulated',
+      paymentRequirements: {
+        amount: 45.00,
+        currency: 'USD',
+        merchant: 'OpenAI API',
+        resourceId: 'res_gpt4_turbo_stream_99x',
+        suggestedAgent: 'agent-beta-002',
+        instructions: 'Submit payment intent to SentriPay gateway, then retry with X-Payment-Proof header.'
+      }
+    });
+  }
+
+  // Valid proof supplied -> unlock resource
+  return res.status(200).json({
+    status: 'success',
+    accessGranted: true,
+    settlementVerified: true,
+    settlementId: proof,
+    protocol: 'x402-v1',
+    settlementMode: 'simulated (x402 testnet proof verified)',
+    resource: {
+      id: 'res_gpt4_turbo_stream_99x',
+      type: 'High-Throughput Model Inference',
+      tokenQuota: '500,000 tokens',
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString()
+    }
+  });
+});
+
 // ─── Transactions ─────────────────────────────────────────────────────────────
 app.get('/api/transactions', async (req, res) => {
   const { status, merchant, minAmount, maxAmount } = req.query;

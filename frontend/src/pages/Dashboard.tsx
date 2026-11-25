@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, ShieldAlert, Activity, DollarSign, Clock, Cpu, Banknote, Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2, CalendarRange, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Activity, DollarSign, Clock, Cpu, Banknote, Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2, CalendarRange, AlertTriangle, FileText } from 'lucide-react';
 import TransactionDrawer from '../components/TransactionDrawer';
 import DemoControlsPanel from '../components/DemoControlsPanel';
 import ReviewQueue from '../components/ReviewQueue';
@@ -741,11 +741,84 @@ function ComplianceReport() {
     const link = document.createElement('a'); link.href = url; link.download = `sentripay-compliance-${start}-to-${end}.csv`; link.click(); URL.revokeObjectURL(url);
   };
 
+  const downloadPdf = () => {
+    if (!report) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return alert('Popup blocked. Please allow popups to export PDF report.');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SentriPay Compliance Audit Report (${start} to ${end})</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #18181B; }
+          .header { border-bottom: 2px solid #E2E8F0; padding-bottom: 20px; margin-bottom: 30px; }
+          .title { font-size: 24px; font-weight: bold; color: #1E1B4B; }
+          .subtitle { font-size: 13px; color: #64748B; margin-top: 4px; }
+          .meta { font-size: 12px; font-family: monospace; color: #475569; margin-top: 15px; }
+          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
+          .card { padding: 15px; border-radius: 10px; border: 1px solid #E2E8F0; background: #F8FAFC; }
+          .card-value { font-size: 22px; font-weight: bold; font-family: monospace; }
+          .card-label { font-size: 11px; text-transform: uppercase; color: #64748B; margin-top: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 13px; }
+          th { text-align: left; padding: 10px; background: #F1F5F9; border-bottom: 2px solid #CBD5E1; }
+          td { padding: 10px; border-bottom: 1px solid #E2E8F0; }
+          .section-title { font-size: 16px; font-weight: bold; margin-bottom: 12px; color: #0F172A; }
+          .footer { font-size: 11px; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 20px; margin-top: 40px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="title">SentriPay Autonomous Payment Compliance Report</div>
+          <div class="subtitle">Official audit ledger of deterministic policy enforcement decisions.</div>
+          <div class="meta">Audit Period: ${start} to ${end} | Generated At: ${new Date().toISOString()}</div>
+        </div>
+
+        <div class="section-title">Summary Metrics</div>
+        <div class="grid">
+          <div class="card"><div class="card-value" style="color: #4F46E5;">${report.summary.total}</div><div class="card-label">Total Processed</div></div>
+          <div class="card"><div class="card-value" style="color: #059669;">${report.summary.approved}</div><div class="card-label">Approved</div></div>
+          <div class="card"><div class="card-value" style="color: #E11D48;">${report.summary.blocked}</div><div class="card-label">Blocked</div></div>
+          <div class="card"><div class="card-value" style="color: #D97706;">${report.summary.flagged}</div><div class="card-label">Flagged for Review</div></div>
+        </div>
+
+        <div class="section-title">Top Enforcement Block Reasons</div>
+        <table>
+          <thead><tr><th>Violation Signature</th><th style="width: 120px;">Incidents</th></tr></thead>
+          <tbody>
+            ${report.blockReasons.length ? report.blockReasons.map(r => `<tr><td>${r.reason}</td><td><strong>${r.count}</strong></td></tr>`).join('') : '<tr><td colspan="2">No blocks recorded in audit range.</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="section-title">Policy Changes & Operator Actions</div>
+        <table>
+          <thead><tr><th>Action / Detail</th><th style="width: 200px;">Timestamp</th></tr></thead>
+          <tbody>
+            ${report.policyChanges.length ? report.policyChanges.map(c => `<tr><td>${c.detail}</td><td>${new Date(c.createdAt).toLocaleString()}</td></tr>`).join('') : '<tr><td colspan="2">No policy modifications in audit range.</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          Certified by SentriPay Gateway Enforcement Engine • Cryptographic Audit Ledger
+        </div>
+        <script>
+          window.onload = function() { window.print(); };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   const maxReason = Math.max(...(report?.blockReasons.map(x => x.count) || [1]), 1);
   return <section className="mt-8 rounded-3xl p-6 md:p-8" style={{ background: 'linear-gradient(135deg,#FFF1F2 0%,#FFF7ED 52%,#FFFFFF 100%)', border: '1px solid #FECDD3', boxShadow: '0 20px 50px -28px rgba(244,63,94,0.42)' }}>
     <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-5 mb-7">
       <div><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#FFE4E6', color: '#E11D48', boxShadow: '0 6px 16px -8px rgba(225,29,72,.6)' }}><FileCheck2 size={20} /></div><h2 className="text-2xl font-bold" style={{ fontFamily: 'Outfit, sans-serif', color: '#18181B' }}>Compliance Report</h2></div><p className="mt-2" style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: '#BE123C' }}>A traceable story of every decision, drawn from the ledger.</p></div>
-      <div className="flex flex-wrap items-center gap-2 rounded-full p-1.5" style={{ background: 'rgba(255,255,255,.78)', border: '1px solid #FECDD3' }}><CalendarRange size={15} style={{ color: '#E11D48', marginLeft: 8 }} /><input aria-label="Report start date" type="date" value={start} max={end} onChange={e => setStart(e.target.value)} className="rounded-full px-3 py-2 text-xs font-mono outline-none" style={{ background: 'transparent', color: '#18181B' }} /><span style={{ color: '#A1A1AA' }}>→</span><input aria-label="Report end date" type="date" value={end} min={start} max={today} onChange={e => setEnd(e.target.value)} className="rounded-full px-3 py-2 text-xs font-mono outline-none" style={{ background: 'transparent', color: '#18181B' }} /><button onClick={generate} disabled={loading} className="px-5 py-2.5 rounded-full text-sm font-bold text-white disabled:opacity-60" style={{ background: '#18181B', boxShadow: '0 6px 16px -8px rgba(24,24,27,.55)' }}>{loading ? 'Generating…' : 'Generate Report'}</button>{report && <button onClick={download} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold" style={{ background: '#FFFFFF', border: '1px solid #FDA4AF', color: '#BE123C' }}><Download size={15} /> Download CSV</button>}</div>
+      <div className="flex flex-wrap items-center gap-2 rounded-full p-1.5" style={{ background: 'rgba(255,255,255,.78)', border: '1px solid #FECDD3' }}><CalendarRange size={15} style={{ color: '#E11D48', marginLeft: 8 }} /><input aria-label="Report start date" type="date" value={start} max={end} onChange={e => setStart(e.target.value)} className="rounded-full px-3 py-2 text-xs font-mono outline-none" style={{ background: 'transparent', color: '#18181B' }} /><span style={{ color: '#A1A1AA' }}>→</span><input aria-label="Report end date" type="date" value={end} min={start} max={today} onChange={e => setEnd(e.target.value)} className="rounded-full px-3 py-2 text-xs font-mono outline-none" style={{ background: 'transparent', color: '#18181B' }} /><button onClick={generate} disabled={loading} className="px-5 py-2.5 rounded-full text-sm font-bold text-white disabled:opacity-60" style={{ background: '#18181B', boxShadow: '0 6px 16px -8px rgba(24,24,27,.55)' }}>{loading ? 'Generating…' : 'Generate Report'}</button>{report && <button onClick={download} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold" style={{ background: '#FFFFFF', border: '1px solid #FDA4AF', color: '#BE123C' }}><Download size={15} /> Download CSV</button>}
+{report && <button onClick={downloadPdf} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold ml-1" style={{ background: '#FFFFFF', border: '1px solid #C7D2FE', color: '#4F46E5' }}><FileText size={15} /> Export PDF</button>}</div>
     </div>
     {error && <p className="text-sm" style={{ color: '#E11D48' }}>{error}</p>}
     {report && <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4 }} className="space-y-6">
