@@ -54,17 +54,20 @@ export function getMerchantCategory(merchant: string): string {
   return 'General Services';
 }
 
+export type NormalizedPolicyConfig = {
+  maxTxLimit: number;
+  dailyBudget: number;
+  denylist: string[];
+  allowlistMode: boolean;
+  allowlist: string[];
+  maxRiskScore: number;
+  categoryCaps?: Record<string, number>;
+  [key: string]: unknown;
+};
+
 export type PolicyEngineContext = {
   agent: { id: string; name?: string; status: string; dailyBudget: number } | null;
-  config: {
-    maxTxLimit: number;
-    dailyBudget: number;
-    denylist: string[];
-    allowlistMode: boolean;
-    allowlist: string[];
-    maxRiskScore: number;
-    categoryCaps?: Record<string, number>;
-  };
+  config: NormalizedPolicyConfig;
   agent24hSpend: number;
   rolling24hSpend: number;
   recent1sCount: number;
@@ -404,16 +407,15 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
 
   // ── Category cap: aggregate 24h approved spend in the same category ────────
   let category24hSpend = 0;
-  const rawCategoryCaps = (config as any)?.categoryCaps;
-  const categoryCaps = (rawCategoryCaps && typeof rawCategoryCaps === 'object' && !Array.isArray(rawCategoryCaps))
-    ? (rawCategoryCaps as Record<string, number>)
-    : undefined;
+  const rawCategoryCaps = (config as unknown as Record<string, unknown>)?.categoryCaps;
+  const categoryCaps: Record<string, number> | undefined =
+    (rawCategoryCaps && typeof rawCategoryCaps === 'object' && !Array.isArray(rawCategoryCaps))
+      ? (rawCategoryCaps as Record<string, number>)
+      : undefined;
 
   if (categoryCaps && Object.keys(categoryCaps).length > 0) {
     const txCategory = getMerchantCategory(tx.merchant);
     if (categoryCaps[txCategory] !== undefined) {
-      // Collect all transactions in last 24h and derive their categories in JS
-      // (avoids storing category as a DB column)
       const recentTxs = await prisma.transaction.findMany({
         where: { status: 'APPROVED', createdAt: { gt: oneDayAgo } },
         select: { merchant: true, amount: true }
@@ -424,12 +426,19 @@ export async function evaluatePolicy(tx: TransactionRequest): Promise<PolicyResu
     }
   }
 
+  const normalizedConfig: NormalizedPolicyConfig = {
+    maxTxLimit: config.maxTxLimit,
+    dailyBudget: config.dailyBudget,
+    denylist: config.denylist as string[],
+    allowlistMode: config.allowlistMode,
+    allowlist: config.allowlist as string[],
+    maxRiskScore: config.maxRiskScore ?? 80,
+    categoryCaps
+  };
+
   return evaluateRules(tx, {
     agent,
-    config: {
-      ...config,
-      categoryCaps
-    },
+    config: normalizedConfig,
     agent24hSpend,
     rolling24hSpend,
     recent1sCount,

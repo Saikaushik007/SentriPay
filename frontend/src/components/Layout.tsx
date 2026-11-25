@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw } from 'lucide-react';
+import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw, Store } from 'lucide-react';
 import { useSocketStatus } from '../lib/api';
 import { colors, shadows, radii, spacing } from '../theme';
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default function Layout({ children, onOpenPalette }: { children: React.ReactNode; onOpenPalette?: () => void }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const socketStatus = useSocketStatus();
 
@@ -13,6 +13,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/policies',  label: 'Policies',  icon: Shield },
     { to: '/agents',    label: 'Agents',    icon: Bot },
+    { to: '/merchants', label: 'Merchants', icon: Store },
     { to: '/integrate', label: 'Integrate', icon: Code },
   ];
 
@@ -158,8 +159,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* Right side: Real Socket Status Pill & Mobile Menu Toggle */}
+        {/* Right side: Real Socket Status Pill, ⌘K, Mobile Menu Toggle */}
         <div className="flex items-center gap-3">
+          {/* ⌘K Command Palette hint */}
+          {onOpenPalette && (
+            <button
+              onClick={onOpenPalette}
+              aria-label="Open command palette"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-semibold transition-all"
+              style={{ background: '#F4F4F5', border: '1px solid #E4E4E7', color: '#71717A', cursor: 'pointer' }}
+              onMouseOver={e => { e.currentTarget.style.background = '#EEF2FF'; e.currentTarget.style.color = '#4F46E5'; }}
+              onMouseOut={e => { e.currentTarget.style.background = '#F4F4F5'; e.currentTarget.style.color = '#71717A'; }}
+            >
+              <span style={{ fontSize: 11 }}>⌘K</span>
+            </button>
+          )}
           <div
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-bold font-mono transition-colors"
             style={{

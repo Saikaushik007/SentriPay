@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X, Key, Copy, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { Bot, ShieldCheck, DollarSign, Shield, ShieldX, Zap, Pause, Play, Edit3, Check, X, Key, Copy, Eye, EyeOff, RotateCcw, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { apiUrl } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 
@@ -457,6 +458,17 @@ export default function Agents() {
                         <ShieldX size={11} /> {agent.blocked} Blocked
                       </span>
                     </div>
+                  </div>
+                  {/* View Detail link */}
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(228,228,231,0.6)' }}>
+                    <Link
+                      to={`/agents/${agent.agentId}`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: color, textDecoration: 'none', padding: '6px 12px', borderRadius: 8, background: `${color}10`, border: `1px solid ${color}22`, transition: 'all .15s' }}
+                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = `${color}20`; }}
+                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = `${color}10`; }}
+                    >
+                      <ArrowRight size={12} /> View Full Detail
+                    </Link>
                   </div>
                 </div>
               </motion.div>

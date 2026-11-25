@@ -1,25 +1,27 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
 import { ToastProvider } from './context/ToastContext';
+import CommandPalette from './components/CommandPalette';
+import { apiUrl } from './lib/api';
 
-// Lazy-loaded routes to split chunks and optimize initial load
+// Lazy-loaded routes
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Policies = lazy(() => import('./pages/Policies'));
 const Agents = lazy(() => import('./pages/Agents'));
 const Integrate = lazy(() => import('./pages/Integrate'));
+const AgentDetail = lazy(() => import('./pages/AgentDetail'));
+const MerchantInsights = lazy(() => import('./pages/MerchantInsights'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 function PageFallback() {
   return (
-    <div className="p-8 max-w-[1400px] mx-auto w-full space-y-6 animate-pulse">
-      <div className="h-44 rounded-3xl bg-gray-200/70" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="h-64 rounded-3xl bg-gray-200/70" />
-        <div className="h-64 rounded-3xl bg-gray-200/70" />
-        <div className="h-64 rounded-3xl bg-gray-200/70" />
+    <div style={{ padding: 32, maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ height: 176, borderRadius: 24, background: 'rgba(229,231,235,0.7)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
+        {[1, 2, 3].map(i => <div key={i} style={{ height: 256, borderRadius: 24, background: 'rgba(229,231,235,0.7)' }} />)}
       </div>
     </div>
   );
@@ -29,11 +31,38 @@ export default function App() {
   return (
     <ToastProvider>
       <BrowserRouter>
-        <Layout>
-          <AnimatedRoutes />
-        </Layout>
+        <AppInner />
       </BrowserRouter>
     </ToastProvider>
+  );
+}
+
+function AppInner() {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Ctrl+K / Cmd+K global handler
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(o => !o);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleDemoReset = useCallback(async () => {
+    try { await fetch(apiUrl('/api/reset-demo'), { method: 'POST' }); } catch (e) { console.error(e); }
+  }, []);
+
+  return (
+    <>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onDemoReset={handleDemoReset} />
+      <Layout onOpenPalette={() => setPaletteOpen(true)}>
+        <AnimatedRoutes />
+      </Layout>
+    </>
   );
 }
 
@@ -54,6 +83,8 @@ function AnimatedRoutes() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/policies" element={<Policies />} />
             <Route path="/agents" element={<Agents />} />
+            <Route path="/agents/:id" element={<AgentDetail />} />
+            <Route path="/merchants" element={<MerchantInsights />} />
             <Route path="/integrate" element={<Integrate />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

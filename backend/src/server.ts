@@ -753,6 +753,187 @@ app.patch('/api/agents/:id/budget', async (req, res) => {
   return res.json(updated);
 });
 
+// ─── Phase I: Time-range transaction stats ────────────────────────────────────
+app.get('/api/transactions/stats', async (req, res, next) => {
+  try {
+    const rangeParam = (req.query.range as string) || '24h';
+    const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+    const hours = rangeMap[rangeParam];
+    if (!hours) return res.status(400).json({ error: 'range must be 1h, 24h, or 7d' });
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    const txs = await prisma.transaction.findMany({
+      where: { createdAt: { gte: since } },
+      select: { status: true, amount: true, createdAt: true }
+    });
+
+    const total = txs.length;
+    const approved = txs.filter(t => t.status === 'APPROVED').length;
+    const blocked = txs.filter(t => t.status === 'BLOCKED').length;
+    const flagged = txs.filter(t => t.status === 'FLAGGED').length;
+    const totalSpend = txs.filter(t => t.status === 'APPROVED').reduce((s, t) => s + t.amount, 0);
+    const approvalRate = total > 0 ? Math.round((approved / total) * 1000) / 10 : 0;
+
+    return res.json({ total, approved, blocked, flagged, approvalRate, totalSpend: Math.round(totalSpend * 100) / 100, range: rangeParam, since });
+  } catch (err) { next(err); }
+});
+
+// ─── Phase I: Rule-hit counts by range ────────────────────────────────────────
+app.get('/api/transactions/rule-hits', async (req, res, next) => {
+  try {
+    const rangeParam = (req.query.range as string) || '24h';
+    const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+    const hours = rangeMap[rangeParam];
+    if (!hours) return res.status(400).json({ error: 'range must be 1h, 24h, or 7d' });
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    const txs = await prisma.transaction.findMany({
+      where: { createdAt: { gte: since }, status: { in: ['BLOCKED', 'FLAGGED'] } },
+      select: { reason: true }
+    });
+
+    // Extract rule labels from reason strings
+    const hitMap: Record<string, number> = {};
+    const rulePatterns: Array<[RegExp, string]> = [
+      [/agent paused/i, 'Agent Paused'],
+      [/denylist/i, 'Merchant Denylist'],
+      [/allowlist/i, 'Merchant Allowlist'],
+      [/per-transaction limit/i, 'Per-Tx Limit'],
+      [/frequency cap/i, 'Velocity Cap'],
+      [/rolling 24h budget/i, 'Rolling Budget'],
+      [/category.*cap/i, 'Category Cap'],
+      [/risk score/i, 'Risk Score'],
+      [/agent daily budget/i, 'Agent Budget'],
+    ];
+
+    for (const { reason } of txs) {
+      let matched = false;
+      for (const [pat, label] of rulePatterns) {
+        if (pat.test(reason || '')) { hitMap[label] = (hitMap[label] || 0) + 1; matched = true; break; }
+      }
+      if (!matched) hitMap['Other'] = (hitMap['Other'] || 0) + 1;
+    }
+
+    const hits = Object.entries(hitMap)
+      .map(([rule, count]) => ({ rule, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    return res.json({ hits, range: rangeParam });
+  } catch (err) { next(err); }
+});
+
+// ─── Phase I/J: Agent detail ──────────────────────────────────────────────────
+app.get('/api/agents/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const agent = await prisma.agent.findUnique({ where: { id } });
+    if (!agent) return res.status(404).json({ error: 'Agent not found' });
+
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [allTxs, recentTxs] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { agentId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: { id: true, amount: true, merchant: true, status: true, reason: true, riskScore: true, createdAt: true }
+      }),
+      prisma.transaction.findMany({
+        where: { agentId: id, createdAt: { gte: since24h } },
+        select: { status: true, amount: true, reason: true }
+      })
+    ]);
+
+    const spend24h = recentTxs.filter(t => t.status === 'APPROVED').reduce((s, t) => s + t.amount, 0);
+    const approved = recentTxs.filter(t => t.status === 'APPROVED').length;
+    const blocked = recentTxs.filter(t => t.status === 'BLOCKED').length;
+    const flagged = recentTxs.filter(t => t.status === 'FLAGGED').length;
+    const total = recentTxs.length;
+    const approvalRate = total > 0 ? Math.round((approved / total) * 1000) / 10 : 0;
+
+    // Rule hit counts
+    const ruleHits: Record<string, number> = {};
+    for (const t of recentTxs.filter(t => t.status !== 'APPROVED')) {
+      const r = t.reason || 'Unknown';
+      ruleHits[r] = (ruleHits[r] || 0) + 1;
+    }
+
+    return res.json({
+      ...agent,
+      stats24h: { spend24h: Math.round(spend24h * 100) / 100, approved, blocked, flagged, total, approvalRate },
+      ruleHits: Object.entries(ruleHits).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+      transactions: allTxs
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── Phase J: Merchant insights ───────────────────────────────────────────────
+app.get('/api/merchants/insights', async (req, res, next) => {
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const txs = await prisma.transaction.findMany({
+      where: { createdAt: { gte: since } },
+      select: { merchant: true, amount: true, status: true }
+    });
+
+    const map: Record<string, { merchant: string; volume: number; spend: number; blocks: number; flags: number; total: number }> = {};
+    for (const t of txs) {
+      if (!map[t.merchant]) map[t.merchant] = { merchant: t.merchant, volume: 0, spend: 0, blocks: 0, flags: 0, total: 0 };
+      map[t.merchant].total++;
+      if (t.status === 'APPROVED') { map[t.merchant].volume++; map[t.merchant].spend += t.amount; }
+      if (t.status === 'BLOCKED') map[t.merchant].blocks++;
+      if (t.status === 'FLAGGED') map[t.merchant].flags++;
+    }
+
+    const insights = Object.values(map).map(m => ({
+      ...m,
+      spend: Math.round(m.spend * 100) / 100,
+      riskScore: m.total > 0 ? Math.round(((m.blocks + m.flags) / m.total) * 100) : 0
+    })).sort((a, b) => b.spend - a.spend);
+
+    return res.json(insights);
+  } catch (err) { next(err); }
+});
+
+// ─── Phase J: Simulate policy impact ─────────────────────────────────────────
+app.post('/api/simulate-policy-impact', async (req, res, next) => {
+  try {
+    const { maxTxLimit, dailyBudget, denylist, maxRiskScore, allowlistMode, allowlist } = req.body;
+    if (maxTxLimit !== undefined && (isNaN(parseFloat(maxTxLimit)) || parseFloat(maxTxLimit) <= 0))
+      return res.status(400).json({ error: 'maxTxLimit must be a positive number' });
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const txs = await prisma.transaction.findMany({
+      where: { createdAt: { gte: since } },
+      select: { amount: true, merchant: true, status: true, reason: true, riskScore: true }
+    });
+
+    const dl = Array.isArray(denylist) ? denylist.map((s: string) => s.toLowerCase()) : [];
+    const al = Array.isArray(allowlist) ? allowlist.map((s: string) => s.toLowerCase()) : [];
+    const limit = maxTxLimit !== undefined ? parseFloat(maxTxLimit) : Infinity;
+    const budget = dailyBudget !== undefined ? parseFloat(dailyBudget) : Infinity;
+    const riskThresh = maxRiskScore !== undefined ? parseFloat(maxRiskScore) : 100;
+
+    let wouldBlock = 0, wouldFlag = 0, wouldApprove = 0;
+    let runningSpend = 0;
+
+    for (const t of txs) {
+      const mLower = t.merchant.toLowerCase();
+      const isDenied = dl.includes(mLower);
+      const notAllowed = allowlistMode && al.length > 0 && !al.includes(mLower);
+      const overLimit = t.amount > limit;
+      const overBudget = runningSpend + t.amount > budget;
+      const riskHigh = (t.riskScore ?? 10) >= riskThresh;
+
+      if (isDenied || notAllowed || overLimit || overBudget) { wouldBlock++; }
+      else if (riskHigh) { wouldFlag++; }
+      else { wouldApprove++; runningSpend += t.amount; }
+    }
+
+    return res.json({ wouldBlock, wouldFlag, wouldApprove, total: txs.length });
+  } catch (err) { next(err); }
+});
+
 // ─── Demo Reset ───────────────────────────────────────────────────────────────
 app.post('/api/reset-demo', async (req, res) => {
   try {

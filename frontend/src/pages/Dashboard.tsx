@@ -1,6 +1,11 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, ShieldAlert, Activity, DollarSign, Clock, Cpu, Banknote, Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2, CalendarRange, AlertTriangle, FileText } from 'lucide-react';
+import {
+      ShieldCheck, ShieldAlert, Activity, DollarSign, Cpu, Banknote,
+      Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2,
+      CalendarRange, AlertTriangle, FileText, Bell, BellRing, Users,
+      BarChart2, ChevronUp, ChevronDown, ArrowRight, Zap
+} from 'lucide-react';
 import TransactionDrawer from '../components/TransactionDrawer';
 import DemoControlsPanel from '../components/DemoControlsPanel';
 import ReviewQueue from '../components/ReviewQueue';
@@ -10,26 +15,11 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
-function Toast({ msg, visible }: { msg: string; visible: boolean }) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div initial={{ opacity: 0, y: -24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -24 }}
-          className="fixed top-6 right-6 z-50 flex items-center gap-3 text-white px-5 py-3.5 rounded-2xl text-sm font-semibold"
-          style={{ background: 'linear-gradient(135deg,#10B981,#34D399)', boxShadow: '0 4px 24px -4px rgba(16,185,129,0.4)' }}>
-          <CheckCircle2 size={18} /> {msg}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
+// ── Types ─────────────────────────────────────────────────────────────────────
 type Transaction = {
   id: string; amount: number; merchant: string; agentId: string;
   status: 'APPROVED' | 'BLOCKED' | 'FLAGGED'; reason: string;
-  riskScore?: number; settlementId?: string;
-  ruleResults?: any;
+  riskScore?: number; settlementId?: string; ruleResults?: any;
   createdAt?: string; timestamp?: string;
 };
 type ChartPoint = { time: string; approved: number; blocked: number; flagged: number };
@@ -37,655 +27,351 @@ type MerchantStat = { merchant: string; total: number; blocked: number; approved
 type BudgetInfo = { spent: number; limit: number };
 type InsightInfo = { thisWeekSpend: number; lastWeekSpend: number; spendChangePct: number | null; busiestHour: number | null; busiestHourTransactions: number; sampleSize: number };
 type Anomaly = { id: string; severity: 'warning' | 'critical'; message: string };
+type StatsData = { total: number; approved: number; blocked: number; flagged: number; approvalRate: number; totalSpend: number; range: string };
+type RuleHit = { rule: string; count: number };
+type AgentInfo = { id: string; name: string; status: string; spentToday: number; dailyBudget: number; approvalRate: string; total: number; approved: number; blocked: number; flagged: number };
 
-export default function Dashboard() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [chartData, setChartData] = useState<ChartPoint[]>([]);
-  const [merchants, setMerchants] = useState<MerchantStat[]>([]);
-  const [budget, setBudget] = useState<BudgetInfo | null>(null);
-  const [insights, setInsights] = useState<InsightInfo | null>(null);
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({ msg, visible }: { msg: string; visible: boolean }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div initial={{ opacity: 0, y: -24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -24 }}
+          style={{ position: 'fixed', top: 24, right: 24, zIndex: 50, display: 'flex', alignItems: 'center', gap: 12, color: 'white', padding: '12px 20px', borderRadius: 16, fontSize: 14, fontWeight: 600, background: 'linear-gradient(135deg,#10B981,#34D399)', boxShadow: '0 4px 24px -4px rgba(16,185,129,0.4)' }}>
+          <CheckCircle2 size={18} /> {msg}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
-  // Live tracking — IDs that arrived via websocket (not pre-seeded)
-  const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState(false);
-  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
-  const [dismissedAnomalies, setDismissedAnomalies] = useState<Set<string>>(new Set());
-
-  // Filters
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [filterMerchant, setFilterMerchant] = useState('');
-  const [filterMin, setFilterMin] = useState('');
-  const [filterMax, setFilterMax] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-
-  const fetchAll = async () => {
-    setFetchError(null);
-    try {
-      await Promise.all([
-        fetch(apiUrl('/api/transactions')).then(r => r.json()).then(setTransactions),
-        fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData),
-        fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants),
-        fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget),
-        fetch(apiUrl('/api/insights')).then(r => r.json()).then(setInsights)
-      ]);
-    } catch (err: any) {
-      console.error(err);
-      setFetchError(err?.message || 'Failed to fetch dashboard data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  const refreshAnomalies = () => fetch(apiUrl('/api/anomalies')).then(r => r.json()).then(data => setAnomalies(data.alerts || [])).catch(console.error);
+// ── Notification Bell ─────────────────────────────────────────────────────────
+function NotificationBell({ transactions }: { transactions: Transaction[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const recent = transactions.filter(t => t.status === 'BLOCKED' || t.status === 'FLAGGED').slice(0, 6);
 
   useEffect(() => {
-    fetchAll();
-    refreshAnomalies();
-    const onNewTx = (tx: Transaction) => {
-      setTransactions(prev => [tx, ...prev].slice(0, 150));
-      setLiveIds(prev => new Set([...prev, tx.id]));
-      fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
-      fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
-      fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
-      fetch(apiUrl('/api/insights')).then(r => r.json()).then(setInsights).catch(console.error);
-      refreshAnomalies();
-    };
-    const onDemoReset = () => { fetchAll(); setLiveIds(new Set()); setToast(true); setTimeout(() => setToast(false), 3000); };
-    const onTxUpdated = (updated: Transaction) => {
-      setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
-      fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
-      fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants).catch(console.error);
-      fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
-    };
-    socket.on('new_transaction', onNewTx);
-    socket.on('demo_reset', onDemoReset);
-    socket.on('transaction_updated', onTxUpdated);
-    const anomalyInterval = window.setInterval(refreshAnomalies, 45000);
-    return () => {
-      socket.off('new_transaction', onNewTx);
-      socket.off('demo_reset', onDemoReset);
-      socket.off('transaction_updated', onTxUpdated);
-      window.clearInterval(anomalyInterval);
-    };
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const totalTxs = transactions.length;
-  const blockedTxs = transactions.filter(t => t.status === 'BLOCKED').length;
-  const approvedTxs = transactions.filter(t => t.status === 'APPROVED').length;
-  const approvalRate = totalTxs > 0 ? ((approvedTxs / totalTxs) * 100).toFixed(1) : '0.0';
-  const dailySpend = budget?.spent || 0;
-
-  const filteredTxs = useMemo(() => {
-    return transactions.filter(tx => {
-      if (filterStatus !== 'ALL' && tx.status !== filterStatus) return false;
-      if (filterMerchant && !tx.merchant.toLowerCase().includes(filterMerchant.toLowerCase())) return false;
-      if (filterMin && tx.amount < parseFloat(filterMin)) return false;
-      if (filterMax && tx.amount > parseFloat(filterMax)) return false;
-      return true;
-    });
-  }, [transactions, filterStatus, filterMerchant, filterMin, filterMax]);
-
-  const budgetPct = budget ? Math.min((budget.spent / budget.limit) * 100, 100) : 0;
-
-  const exportTransactions = async () => {
-    try {
-      const rows: Transaction[] = await fetch(apiUrl('/api/transactions/export')).then(r => r.json());
-      const header = ['id', 'createdAt', 'agentId', 'merchant', 'amount', 'status', 'riskScore', 'settlementId', 'reason'];
-      const csv = [header, ...rows.map(row => header.map(key => JSON.stringify((row as any)[key] ?? '')))].map(row => row.join(',')).join('\n');
-      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-      const link = document.createElement('a');
-      link.href = url; link.download = `sentripay-transactions-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error('Export failed:', e);
-    }
-  };
-
   return (
-    <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full">
-      <ActivityTicker transactions={transactions} />
-      <AnomalyBanner alerts={anomalies.filter(alert => !dismissedAnomalies.has(alert.id))} onDismiss={id => setDismissedAnomalies(previous => new Set([...previous, id]))} />
-      <Toast msg="✓ Demo data reset — 110 baseline records loaded" visible={toast} />
-
-      {/* Page Top Bar */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Outfit, sans-serif' }}>Overview</h1>
-          <p className="text-sm mt-1" style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: '#7C3AED' }}>Every autonomous payment, kept intentionally in bounds.</p>
-          <p className="text-sm mt-0.5 text-gray-500">Real-time policy enforcement metrics</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={exportTransactions}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold transition-all hover:bg-violet-50 cursor-pointer"
-            style={{ background: 'white', border: '1px solid #D8D4FE', color: '#4F46E5', boxShadow: '0 4px 14px -5px rgba(79,70,229,0.35)' }}
-          >
-            <Download size={15} /> Export CSV
-          </button>
-        </div>
-      </div>
-
-      {/* Error state with Retry */}
-      {fetchError && (
-        <div className="mb-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle size={18} /> {fetchError}
-          </div>
-          <button
-            onClick={fetchAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors"
-          >
-            <RotateCcw size={12} /> Retry
-          </button>
-        </div>
-      )}
-
-      {/* Stat Row */}
-      {isLoading && transactions.length === 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8 animate-pulse">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-32 rounded-2xl bg-white/70 border border-gray-200/60" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
-          <StatCard value={totalTxs} label="Total Processed" color="#4F46E5" />
-          <StatCard value={blockedTxs} label="Blocked" color="#F43F5E" />
-          <StatCard value={`${approvalRate}%`} label="Approval Rate" color="#10B981" />
-          <StatCard value={`$${dailySpend.toLocaleString(undefined,{maximumFractionDigits:0})}`} label="24h Spend" color="#7C3AED" mono />
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Left: Charts + Feed */}
-        <div className="xl:col-span-2 flex flex-col gap-8">
-
-          {/* Architecture Visual */}
-          <div className="rounded-2xl p-8 relative overflow-hidden flex flex-col gap-6 text-white"
-            style={{ background: 'linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%)', boxShadow: '0 8px 40px -8px rgba(79,70,229,0.45)' }}>
-            <DepthOrb />
-            <div>
-              <div className="text-xs font-mono uppercase tracking-wider mb-1" style={{ color: 'rgba(255,255,255,0.6)' }}>x402 Protocol</div>
-              <h2 className="font-bold text-2xl" style={{ fontFamily: 'Outfit, sans-serif' }}>Sentinel Architecture</h2>
-              <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.75)' }}>Real-time interception and policy enforcement gateway</p>
-            </div>
-            <div className="flex items-center justify-center gap-0 w-full max-w-md mx-auto relative z-10">
-              <ArchNode icon={<Cpu size={20} />} label="AI Agent" dark />
-              <AnimatedConnector />
-              <ArchNode icon={<ShieldCheck size={22} />} label="Policy Engine" highlight />
-              <AnimatedConnector />
-              <ArchNode icon={<Banknote size={20} />} label="Settlement" dark />
-            </div>
-            <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl pointer-events-none" style={{ background: 'rgba(255,255,255,0.08)' }} />
-          </div>
-
-          <div className="grid grid-cols-1 gap-5">
-            <InsightPanel insights={insights} />
-            {/* Unified Demo Controls & Scenarios Panel */}
-            <DemoControlsPanel onDataChanged={fetchAll} />
-          </div>
-
-          {/* Traffic Volume Chart */}
-          <div className="rounded-2xl p-6" style={{ background: 'linear-gradient(135deg,#F0F9FF,#FFFFFF)', border: '1px solid #BAE6FD', boxShadow: '0 8px 24px -14px rgba(14,165,233,0.28)' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#F0F9FF', color: '#0EA5E9', boxShadow: '0 2px 10px -2px rgba(14,165,233,0.3)' }}>
-                  <Activity size={16} />
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        aria-label="Notifications"
+        onClick={() => setOpen(o => !o)}
+        style={{ position: 'relative', width: 40, height: 40, borderRadius: 10, background: recent.length > 0 ? '#FFF1F2' : '#F4F4F5', border: `1px solid ${recent.length > 0 ? '#FECDD3' : '#E4E4E7'}`, color: recent.length > 0 ? '#E11D48' : '#71717A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all .2s' }}>
+        {recent.length > 0 ? <BellRing size={18} /> : <Bell size={18} />}
+        {recent.length > 0 && (
+          <span style={{ position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8, background: '#E11D48', color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{recent.length}</span>
+        )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: .96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: .96 }}
+            style={{ position: 'absolute', right: 0, top: 48, width: 320, background: 'white', border: '1px solid #E4E4E7', borderRadius: 16, boxShadow: '0 20px 60px -16px rgba(0,0,0,0.2)', zIndex: 100, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #F4F4F5', fontWeight: 700, fontSize: 13 }}>Recent Blocks & Flags</div>
+            {recent.length === 0 ? (
+              <div style={{ padding: 20, fontSize: 13, color: '#71717A', textAlign: 'center' }}>No recent blocks or flags</div>
+            ) : recent.map(tx => (
+              <div key={tx.id} style={{ padding: '10px 16px', borderBottom: '1px solid #F9FAFB', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ marginTop: 2, width: 8, height: 8, borderRadius: 4, background: tx.status === 'BLOCKED' ? '#E11D48' : '#D97706', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#18181B' }}>{tx.merchant} · <span style={{ fontFamily: 'monospace' }}>${tx.amount.toFixed(2)}</span></div>
+                  <div style={{ fontSize: 11, color: '#71717A', marginTop: 2 }}>{tx.reason?.slice(0, 60)}{(tx.reason?.length ?? 0) > 60 ? '…' : ''}</div>
                 </div>
-                <h3 className="font-bold text-lg" style={{ fontFamily: 'Outfit, sans-serif' }}>Transaction Volume</h3>
               </div>
-              <span className="text-xs font-mono" style={{ color: '#71717A' }}>Last {chartData.length} transactions</span>
-            </div>
-            {chartData.length === 0 ? (
-              <EmptyChart />
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorApproved" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#34D399" />
-                      <stop offset="100%" stopColor="#10B981" />
-                    </linearGradient>
-                    <linearGradient id="colorFlagged" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#FCD34D" />
-                      <stop offset="100%" stopColor="#F59E0B" />
-                    </linearGradient>
-                    <linearGradient id="colorBlocked" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#FB7185" />
-                      <stop offset="100%" stopColor="#F43F5E" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E4E7" />
-                  <XAxis dataKey="time" tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip
-                    contentStyle={{ borderRadius: '12px', border: '1px solid #E4E4E7', fontFamily: 'JetBrains Mono, monospace', fontSize: 12, boxShadow: '0 4px 20px -2px rgba(0,0,0,0.06)' }}
-                    formatter={(val: any) => [`$${Number(val).toFixed(2)}`, undefined]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12, fontFamily: 'Inter, sans-serif', paddingTop: '10px' }} />
-                  <Bar dataKey="approved" stackId="a" fill="url(#colorApproved)" name="Approved" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="flagged" stackId="a" fill="url(#colorFlagged)" name="Flagged" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="blocked" stackId="a" fill="url(#colorBlocked)" name="Blocked" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* Review Queue for FLAGGED Transactions */}
-          <ReviewQueue transactions={transactions} onInspect={setSelectedTx} onActionComplete={fetchAll} />
-
-          {/* Live Feed with Filters */}
-          <div className="bg-surface border-0 rounded-3xl shadow-card hover:shadow-card-hover transition-shadow duration-300 flex flex-col overflow-hidden">
-            <div className="p-5 border-b border-border bg-white flex items-center justify-between flex-wrap gap-3">
-              <h2 className="font-display font-semibold text-lg flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-primaryLight flex items-center justify-center text-primary">
-                  <Activity size={18} />
-                </div>
-                Live Feed
-              </h2>
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Status Filter */}
-                <div className="flex items-center gap-1 rounded-lg p-1 text-xs" style={{ background: '#F9FAFB', border: '1px solid #E4E4E7' }}>
-                  {['ALL', 'APPROVED', 'BLOCKED', 'FLAGGED'].map(s => (
-                    <button key={s}
-                      onClick={() => setFilterStatus(s)}
-                      style={filterStatus === s
-                        ? { background: '#4F46E5', color: 'white', boxShadow: '0 4px 14px -2px rgba(79,70,229,0.35)' }
-                        : { color: '#71717A' }}
-                      className="px-3 py-1.5 rounded-md font-bold transition-all duration-200 hover:bg-gray-100"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-                {/* Merchant Search */}
-                <div className="relative">
-                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: '#71717A' }} />
-                  <input value={filterMerchant} onChange={e => setFilterMerchant(e.target.value)}
-                    placeholder="Merchant..." className="pl-7 pr-2 py-1.5 text-xs bg-white rounded-lg outline-none w-28 font-mono"
-                    style={{ border: '1px solid #E4E4E7' }} />
-                </div>
-                {/* Amount Range */}
-                <input value={filterMin} onChange={e => setFilterMin(e.target.value)} placeholder="Min $"
-                  className="w-16 px-2 py-1.5 text-xs bg-white rounded-lg outline-none font-mono"
-                  style={{ border: '1px solid #E4E4E7' }} />
-                <input value={filterMax} onChange={e => setFilterMax(e.target.value)} placeholder="Max $"
-                  className="w-16 px-2 py-1.5 text-xs bg-white rounded-lg outline-none font-mono"
-                  style={{ border: '1px solid #E4E4E7' }} />
-                {(filterMerchant || filterMin || filterMax || filterStatus !== 'ALL') && (
-                  <button onClick={() => { setFilterStatus('ALL'); setFilterMerchant(''); setFilterMin(''); setFilterMax(''); }}
-                    className="p-1.5 rounded-lg transition-colors"
-                    style={{ border: '1px solid #E4E4E7', color: '#F43F5E' }}>
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-12 gap-2 px-6 py-3 text-xs font-semibold uppercase tracking-wider bg-white" style={{ borderBottom: '1px solid #E4E4E7', color: '#71717A' }}>
-              <div className="col-span-1"></div>
-              <div className="col-span-2">Time</div>
-              <div className="col-span-3">Merchant</div>
-              <div className="col-span-2">Amount</div>
-              <div className="col-span-2">Status</div>
-              <div className="col-span-2 flex items-center justify-between">
-                <span>Settlement / Reason</span>
-                <span className="text-[10px] text-indigo-500 font-normal lowercase tracking-normal">(click to inspect)</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col max-h-[480px] overflow-y-auto p-3">
-              <AnimatePresence initial={false}>
-                {filteredTxs.length === 0 ? (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="flex flex-col items-center justify-center h-40 gap-2" style={{ color: '#71717A' }}>
-                    <Clock size={24} className="opacity-30" />
-                    <p className="text-sm font-medium">No transactions match your filters</p>
-                    <p className="text-xs">Try adjusting your search criteria</p>
-                  </motion.div>
-                ) : filteredTxs.map(tx => {
-                  const isLive = liveIds.has(tx.id);
-                  return (
-                    <motion.div key={tx.id}
-                      initial={{ opacity: 0, scale: isLive ? 1.03 : 1, y: -8, backgroundColor: isLive ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0)' }}
-                      animate={{ opacity: 1, scale: 1, y: 0, backgroundColor: 'rgba(255,255,255,0)' }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.35 }}
-                      onClick={() => setSelectedTx(tx)}
-                      title="Click to view decision explainer & policy rules"
-                      className={`grid grid-cols-12 gap-2 px-3 py-3 items-center rounded-xl cursor-pointer transition-all hover:shadow-xs ${
-                        tx.status === 'APPROVED' ? 'hover:bg-emerald-50/60' :
-                        tx.status === 'BLOCKED' ? 'hover:bg-rose-50/60' :
-                        'hover:bg-amber-50/60'
-                      }`}
-                      style={{
-                        borderBottom: '1px solid #F4F4F5',
-                        borderLeft: isLive
-                          ? '3px solid #10B981'
-                          : tx.status === 'APPROVED' ? '3px solid rgba(16,185,129,0.3)'
-                          : tx.status === 'BLOCKED' ? '3px solid rgba(244,63,94,0.3)'
-                          : '3px solid rgba(245,158,11,0.3)',
-                        background: isLive ? 'rgba(16,185,129,0.03)' : undefined
-                      }}>
-                      {/* Live pulse dot vs Baseline badge */}
-                      <div className="col-span-1 flex items-center justify-center">
-                        {isLive ? (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs" title="Live WebSocket Transaction">
-                            <span className="relative flex h-1.5 w-1.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-600" />
-                            </span>
-                            LIVE
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 border border-gray-200" title="Seeded Baseline Transaction">
-                            Base
-                          </span>
-                        )}
-                      </div>
-                      <div className="col-span-2 text-xs font-mono" style={{ color: '#71717A' }}>
-                        {new Date(tx.createdAt || tx.timestamp || Date.now()).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </div>
-                      <div className="col-span-3 text-sm font-medium truncate" style={{ color: '#18181B' }}>{tx.merchant}</div>
-                      <div className="col-span-2 text-sm font-mono font-bold flex items-center gap-1" style={{ color: '#18181B' }}>
-                        <DollarSign size={13} style={{ color: '#71717A' }} />
-                        {tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </div>
-                      <div className="col-span-2"><StatusPill status={tx.status} /></div>
-                      <div className="col-span-2">
-                        {tx.status === 'APPROVED' && (tx as any).settlementId ? (
-                          <span className="text-[10px] font-mono px-2 py-1 rounded-lg"
-                            style={{ color: '#10B981', background: 'rgba(16,185,129,0.10)' }}>
-                            {(tx as any).settlementId}
-                          </span>
-                        ) : tx.status === 'FLAGGED' && tx.riskScore ? (
-                          <div className="flex items-center gap-2">
-                            <MiniRiskGauge score={tx.riskScore} />
-                            <span className="text-xs truncate" style={{ color: '#71717A' }} title={tx.reason}>{tx.reason}</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs truncate block" style={{ color: '#71717A' }} title={tx.reason}>{tx.reason}</span>
-                        )}
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Sidebar widgets */}
-        <div className="flex flex-col gap-6">
-          {/* Budget Donut */}
-          <div className="rounded-3xl p-6" style={{ background: 'linear-gradient(135deg,#FFF7ED,#FFFBEB)', border: '1px solid #FED7AA', boxShadow: '0 8px 40px -12px rgba(234,88,12,0.20)' }}>
-            <div className="flex items-center gap-3 mb-1">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#EEF2FF', color: '#4F46E5', boxShadow: '0 2px 10px -2px rgba(79,70,229,0.3)' }}>
-                <Banknote size={16} />
-              </div>
-              <h3 className="font-bold text-lg" style={{ fontFamily: 'Outfit, sans-serif' }}>24h Budget</h3>
-            </div>
-            <p className="text-xs mb-5 ml-11" style={{ color: '#71717A' }}>Rolling spend vs. daily cap</p>
-            {budget ? (
-              <>
-                <div className="flex items-center justify-center mb-4">
-                  <div className="relative">
-                    {/* Pure SVG donut — no recharts crash */}
-                    <BudgetDonut pct={budgetPct} />
-                  </div>
-                </div>
-                <div className="flex justify-between text-xs font-mono">
-                  <span className="font-bold" style={{ color: '#4F46E5' }}>${budget.spent.toFixed(2)} spent</span>
-                  <span style={{ color: '#71717A' }}>${(Math.max(budget.limit - budget.spent, 0)).toFixed(2)} left</span>
-                </div>
-                {/* Progress bar */}
-                <div className="mt-3 h-2 rounded-full overflow-hidden" style={{ background: '#E4E4E7' }}>
-                  <div className="h-full rounded-full transition-all duration-1000"
-                    style={{ width: `${budgetPct}%`, background: 'linear-gradient(90deg, #4F46E5, #7C3AED)' }} />
-                </div>
-              </>
-            ) : (
-              <div className="h-40 flex items-center justify-center text-sm" style={{ color: '#71717A' }}>Loading...</div>
-            )}
-          </div>
-
-          {/* Enforcement Layers Table */}
-          <div className="rounded-3xl overflow-hidden" style={{ background: 'linear-gradient(135deg,#F5F3FF,#FFFFFF)', border: '1px solid #DDD6FE', boxShadow: '0 8px 40px -12px rgba(124,58,237,0.18)' }}>
-            <div className="p-5 flex items-center gap-3" style={{ borderBottom: '1px solid #E4E4E7', background: '#FAFAFA' }}>
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#EEF2FF', color: '#4F46E5', boxShadow: '0 2px 10px -2px rgba(79,70,229,0.3)' }}>
-                <ShieldCheck size={16} />
-              </div>
-              <h3 className="font-bold text-lg" style={{ fontFamily: 'Outfit, sans-serif' }}>Enforcement Layers</h3>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase" style={{ color: '#71717A', background: '#F9FAFB', borderBottom: '1px solid #E4E4E7' }}>
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold">Rule</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Value</th>
-                  <th className="px-4 py-2.5 text-center font-semibold">On</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { name: 'Per-Tx Limit', value: `$${(budget?.limit || 1000).toLocaleString()}`, highlight: true },
-                  { name: 'Daily Budget', value: `$${(budget?.limit || 2000).toLocaleString()}/day`, highlight: false },
-                  { name: 'Rate Limit', value: '3 tx / sec', highlight: false },
-                  { name: 'Risk Threshold', value: 'Score ≥ 80', highlight: false },
-                  { name: 'Allowlist Mode', value: 'Configurable', highlight: false },
-                ].map((row, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #F4F4F5', background: row.highlight ? 'rgba(79,70,229,0.04)' : i % 2 === 0 ? 'white' : '#FAFAFA' }}>
-                    <td className="px-4 py-3 font-semibold text-sm" style={{ color: row.highlight ? '#4F46E5' : '#18181B' }}>{row.name}</td>
-                    <td className="px-4 py-3 font-mono text-xs" style={{ color: '#71717A' }}>{row.value}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="relative inline-flex">
-                        <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full opacity-50" style={{ background: '#10B981' }} />
-                        <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: '#10B981' }} />
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Per-Merchant Blocked Breakdown */}
-          <div className="rounded-3xl p-6" style={{ background: 'linear-gradient(135deg,#FFF1F2,#FFFFFF)', border: '1px solid #FECDD3', boxShadow: '0 8px 24px -14px rgba(244,63,94,0.22)' }}>
-            <h3 className="font-bold text-lg mb-1" style={{ fontFamily: 'Outfit, sans-serif' }}>Top Blocked Merchants</h3>
-            <p className="text-xs mb-4" style={{ color: '#71717A' }}>By block count</p>
-            {merchants.filter(m => m.blocked > 0).length === 0 ? (
-              <div className="text-sm italic text-center py-6" style={{ color: '#71717A' }}>No blocked transactions yet</div>
-            ) : (
-              <div className="space-y-3">
-                {merchants.filter(m => m.blocked > 0).slice(0, 6).map((m) => (
-                  <div key={m.merchant}>
-                    <div className="flex items-center justify-between text-xs mb-1.5">
-                      <span className="font-semibold truncate max-w-[140px]" style={{ color: '#18181B' }}>{m.merchant}</span>
-                      <span className="font-mono font-bold" style={{ color: '#F43F5E' }}>{m.blocked} blocks</span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: '#E4E4E7' }}>
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(m.blocked / (merchants[0]?.blocked || 1)) * 100}%` }}
-                        transition={{ duration: 1, ease: 'easeOut' }}
-                        className="h-full rounded-full"
-                        style={{ background: 'linear-gradient(90deg, #F43F5E, #F472B6)' }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      <ComplianceReport />
-      <TransactionDrawer transaction={selectedTx} onClose={() => setSelectedTx(null)} />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-// ── BudgetDonut (pure SVG, no recharts) ─────────────────────────────────────
-function BudgetDonut({ pct }: { pct: number }) {
-  const R = 58, stroke = 22, size = 180;
-  const circ = 2 * Math.PI * R;
-  const fill = (pct / 100) * circ;
+// ── Sparkline SVG ─────────────────────────────────────────────────────────────
+function Sparkline({ data, color }: { data: number[]; color: string }) {
+  if (!data || data.length < 2) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const W = 80, H = 28;
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((v - min) / range) * H;
+    return `${x},${y}`;
+  }).join(' ');
+  const area = `M 0,${H} L ${pts.split(' ').map(p => p).join(' L ')} L ${W},${H} Z`;
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="#E4E4E7" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={R} fill="none"
-          stroke="url(#budgetGrad)" strokeWidth={stroke}
-          strokeDasharray={`${fill} ${circ - fill}`}
-          strokeDashoffset={circ / 4}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 1s ease' }}
-        />
-        <defs>
-          <linearGradient id="budgetGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#4F46E5" />
-            <stop offset="100%" stopColor="#7C3AED" />
-          </linearGradient>
-        </defs>
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-mono font-bold text-2xl" style={{ color: '#4F46E5' }}>{pct.toFixed(0)}%</span>
-        <span className="text-xs font-semibold" style={{ color: '#71717A' }}>used</span>
-      </div>
-    </div>
+    <svg width={W} height={H} style={{ overflow: 'visible' }}>
+      <defs>
+        <linearGradient id={`sg-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#sg-${color.replace('#', '')})`} />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-function AnimatedNumber({ value, formatter }: { value: number, formatter?: (v: number) => string }) {
+// ── Animated Number ───────────────────────────────────────────────────────────
+function AnimatedNumber({ value }: { value: number }) {
   const [display, setDisplay] = useState(0);
-
+  const ref = useRef(0);
   useEffect(() => {
-    let startTimestamp: number | null = null;
-    const duration = 1000;
-    const startValue = display;
-
-    const step = (timestamp: number) => {
-      if (!startTimestamp) startTimestamp = timestamp;
-      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-      
-      const current = Math.floor(startValue + progress * (value - startValue));
+    const start = ref.current;
+    const target = value;
+    const duration = 800;
+    const startTime = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(start + (target - start) * eased);
       setDisplay(current);
-
-      if (progress < 1) {
-        window.requestAnimationFrame(step);
-      } else {
-        setDisplay(value);
-      }
+      if (progress < 1) requestAnimationFrame(tick);
+      else ref.current = target;
     };
-    window.requestAnimationFrame(step);
+    requestAnimationFrame(tick);
   }, [value]);
-
-  return <span>{formatter ? formatter(display) : display}</span>;
+  return <>{display}</>;
 }
 
-function StatCard({ value, label, color, mono }: { value: string | number; label: string; color: string; mono?: boolean }) {
-  const isNumber = typeof value === 'number';
-  const liftClass = color === '#10B981' ? 'card-lift-success' : color === '#F43F5E' ? 'card-lift-danger' : color === '#7C3AED' ? 'card-lift-violet' : 'card-lift-primary';
+// ── Stat Card with Sparkline ──────────────────────────────────────────────────
+function StatCard({ value, label, color, icon, sparkData, mono }: {
+  value: number | string; label: string; color: string; icon?: React.ReactNode;
+  sparkData?: number[]; mono?: boolean;
+}) {
+  const colorAlpha = color + '18';
   return (
-    <div className={`p-6 rounded-2xl cursor-default transition-all duration-200 relative overflow-hidden card-lift ${liftClass}`}
-      style={{
-        background: color === '#10B981' ? 'linear-gradient(135deg,#ECFDF5,#FFFFFF)' : color === '#F43F5E' ? 'linear-gradient(135deg,#FFF1F2,#FFFFFF)' : color === '#7C3AED' ? 'linear-gradient(135deg,#FFF7ED,#FFFFFF)' : 'linear-gradient(135deg,#EEF2FF,#FFFFFF)',
-        border: `1px solid ${color}30`,
-        boxShadow: `0 8px 22px -16px ${color}88`
-      }}
-    >
-      {/* accent top bar */}
-      <div className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl" style={{ background: color, opacity: 0.85 }} />
-      <div className={`text-4xl lg:text-5xl font-bold mb-2 tabular-nums ${mono ? 'font-mono tracking-tight' : ''}`}
-        style={{ fontFamily: mono ? 'JetBrains Mono, monospace' : 'Outfit, sans-serif', color }}>
-        {isNumber
-          ? <AnimatedNumber value={value as number} formatter={v => v.toLocaleString()} />
-          : value}
+    <motion.div
+      initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4 }}
+      whileHover={{ y: -3, boxShadow: `0 20px 40px -8px ${color}30` }}
+      style={{ background: 'white', border: `1px solid ${color}22`, borderRadius: 20, padding: '20px 20px 16px', boxShadow: `0 6px 24px -8px ${color}22`, transition: 'all .2s', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, right: 0, width: 80, height: 80, borderRadius: '0 20px 0 80px', background: colorAlpha, opacity: .6 }} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ color, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+          <div style={{ fontFamily: mono ? 'JetBrains Mono, monospace' : 'Outfit, sans-serif', fontSize: 28, fontWeight: 800, color: '#18181B', lineHeight: 1 }}>
+            {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
+          </div>
+        </div>
+        {icon && <div style={{ width: 36, height: 36, borderRadius: 10, background: colorAlpha, color, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>{icon}</div>}
       </div>
-      <div className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: '#71717A' }}>{label}</div>
-    </div>
+      {sparkData && sparkData.length >= 2 && (
+        <div style={{ marginTop: 10, opacity: .8 }}>
+          <Sparkline data={sparkData} color={color} />
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const styleMap: Record<string, React.CSSProperties> = {
-    APPROVED: { background: 'linear-gradient(135deg,#10B981,#34D399)', boxShadow: '0 4px 14px -2px rgba(16,185,129,0.35)', color: 'white' },
-    BLOCKED:  { background: 'linear-gradient(135deg,#F43F5E,#F472B6)', boxShadow: '0 4px 14px -2px rgba(244,63,94,0.35)', color: 'white' },
-    FLAGGED:  { background: 'linear-gradient(135deg,#F59E0B,#FCD34D)', boxShadow: '0 4px 14px -2px rgba(245,158,11,0.30)', color: 'white' },
-  };
-  
-  return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase"
-      style={styleMap[status] || { background: '#E4E4E7', color: '#71717A' }}>
-      {status === 'APPROVED' && <CheckCircle2 size={12} strokeWidth={3} />}
-      {status === 'BLOCKED' && <X size={12} strokeWidth={3} />}
-      {status === 'FLAGGED' && <ShieldAlert size={12} strokeWidth={3} />}
-      {status}
-    </span>
-  );
-}
-
-function MiniRiskGauge({ score }: { score: number }) {
-  const color = score < 60 ? '#10B981' : score < 80 ? '#F59E0B' : '#F43F5E';
-  const radius = 8;
-  const stroke = 3;
-  const circ = 2 * Math.PI * radius;
-  const half = circ / 2;
-  const offset = half - (score / 100) * half;
+// ── Spend Gauge ───────────────────────────────────────────────────────────────
+function SpendGauge({ spent, limit }: { spent: number; limit: number }) {
+  const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+  const color = pct > 85 ? '#E11D48' : pct > 65 ? '#D97706' : '#10B981';
+  const r = 48, cx = 60, cy = 60;
+  const circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ * 0.75;
+  const gap = circ - dash;
 
   return (
-    <div className="flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded-md border border-border/50">
-      <svg width="20" height="10" viewBox="0 0 20 10" className="overflow-visible">
-        <path d={`M${stroke / 2} 10 A${radius} ${radius} 0 0 1 ${20 - stroke / 2} 10`}
-          fill="none" stroke="#E4E4E7" strokeWidth={stroke} strokeLinecap="round" />
-        <path d={`M${stroke / 2} 10 A${radius} ${radius} 0 0 1 ${20 - stroke / 2} 10`}
-          fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
-          strokeDasharray={half} strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset 0.8s ease' }} />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <svg width={120} height={96} viewBox="0 0 120 96">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#F4F4F5" strokeWidth={10}
+          strokeDasharray={`${circ * 0.75} ${circ * 0.25}`}
+          strokeDashoffset={circ * 0.125}
+          strokeLinecap="round" />
+        <motion.circle
+          cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={10}
+          strokeDasharray={`${dash} ${gap + circ * 0.25}`}
+          strokeDashoffset={circ * 0.125}
+          strokeLinecap="round"
+          initial={{ strokeDasharray: `0 ${circ}` }}
+          animate={{ strokeDasharray: `${dash} ${gap + circ * 0.25}` }}
+          transition={{ duration: 1.2, ease: 'easeOut' }}
+        />
+        <text x={cx} y={cy - 4} textAnchor="middle" style={{ fill: color, fontSize: 15, fontWeight: 800, fontFamily: 'JetBrains Mono, monospace' }}>{pct.toFixed(0)}%</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" style={{ fill: '#71717A', fontSize: 9, fontFamily: 'Inter, sans-serif' }}>of budget</text>
       </svg>
-      <span className="text-[10px] font-mono font-bold" style={{ color }}>{score}</span>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700, color: '#18181B' }}>
+          ${spent.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span style={{ color: '#A1A1AA', fontWeight: 400 }}>/ ${limit.toLocaleString()}</span>
+        </div>
+        <div style={{ fontSize: 10, color: '#71717A', marginTop: 2 }}>24h spend vs budget</div>
+      </div>
     </div>
   );
 }
 
-function ArchNode({ icon, label, highlight, dark }: { icon: React.ReactNode; label: string; highlight?: boolean; dark?: boolean }) {
-  const boxStyle: React.CSSProperties = highlight
-    ? { background: 'white', color: '#4F46E5', border: '2px solid white', boxShadow: '0 0 0 4px rgba(255,255,255,0.25), 0 4px 24px -4px rgba(79,70,229,0.4)', width: 64, height: 64 }
-    : dark
-    ? { background: 'rgba(255,255,255,0.10)', color: 'white', border: '2px solid rgba(255,255,255,0.20)', backdropFilter: 'blur(8px)', width: 56, height: 56 }
-    : { background: 'white', color: '#71717A', border: '2px solid #E4E4E7', width: 56, height: 56 };
+// ── Agent Leaderboard ─────────────────────────────────────────────────────────
+function AgentLeaderboard({ agents }: { agents: AgentInfo[] }) {
+  const sorted = [...agents].sort((a, b) => b.spentToday - a.spentToday);
+  const maxSpend = sorted[0]?.spentToday || 1;
+
   return (
-    <div className="flex flex-col items-center gap-2 z-10">
-      <div className="rounded-2xl flex items-center justify-center transition-transform hover:scale-105" style={boxStyle}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {sorted.map((ag, i) => {
+        const pct = maxSpend > 0 ? (ag.spentToday / maxSpend) * 100 : 0;
+        const statusColor = ag.status === 'ACTIVE' ? '#10B981' : '#F43F5E';
+        return (
+          <div key={ag.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ width: 20, fontSize: 11, fontWeight: 700, color: i === 0 ? '#D97706' : '#A1A1AA', textAlign: 'right', flexShrink: 0 }}>#{i + 1}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#18181B' }}>{ag.name.replace('Alpha ', 'α ').replace('Beta ', 'β ').replace('Gamma ', 'γ ')}</span>
+                <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#52525B', fontWeight: 700 }}>${ag.spentToday.toFixed(0)}</span>
+              </div>
+              <div style={{ height: 6, background: '#F4F4F5', borderRadius: 4, overflow: 'hidden' }}>
+                <motion.div
+                  initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: .8, delay: i * .1 }}
+                  style={{ height: '100%', background: `linear-gradient(90deg, ${statusColor}99, ${statusColor})`, borderRadius: 4 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+                <span style={{ fontSize: 10, color: '#71717A' }}>{ag.approvalRate}% approval</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: statusColor }}>{ag.status}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Rule Hits Chart ───────────────────────────────────────────────────────────
+function RuleHitsChart({ hits }: { hits: RuleHit[] }) {
+  if (!hits.length) return <div style={{ textAlign: 'center', padding: '24px 0', color: '#A1A1AA', fontSize: 13 }}>No blocks or flags in this range</div>;
+  const maxCount = Math.max(...hits.map(h => h.count), 1);
+  const COLORS = ['#E11D48', '#F43F5E', '#FB7185', '#F87171', '#FCA5A5', '#FECACA', '#FED7D7', '#FFF1F2'];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {hits.slice(0, 6).map((h, i) => (
+        <div key={h.rule} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 100, fontSize: 10, fontWeight: 600, color: '#52525B', textAlign: 'right', flexShrink: 0, lineHeight: '1.3' }}>{h.rule}</div>
+          <div style={{ flex: 1, height: 18, background: '#FFF1F2', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
+            <motion.div
+              initial={{ width: 0 }} animate={{ width: `${(h.count / maxCount) * 100}%` }}
+              transition={{ duration: .7, delay: i * .08 }}
+              style={{ position: 'absolute', left: 0, top: 0, bottom: 0, background: COLORS[i] || '#E11D48', borderRadius: 6 }} />
+          </div>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#E11D48', width: 24, textAlign: 'right', flexShrink: 0 }}>{h.count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Time Range Pills ──────────────────────────────────────────────────────────
+function RangePills({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 2, background: '#F4F4F5', borderRadius: 10, padding: 3 }}>
+      {['1h', '24h', '7d'].map(r => (
+        <button key={r} onClick={() => onChange(r)}
+          style={{ padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all .15s',
+            background: value === r ? 'white' : 'transparent',
+            color: value === r ? '#4F46E5' : '#71717A',
+            boxShadow: value === r ? '0 2px 8px rgba(0,0,0,0.08)' : 'none' }}>
+          {r}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Global Search ─────────────────────────────────────────────────────────────
+function GlobalSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <Search size={14} style={{ position: 'absolute', left: 10, color: '#A1A1AA' }} />
+      <input
+        value={value} onChange={e => onChange(e.target.value)}
+        placeholder="Search transactions…"
+        style={{ paddingLeft: 30, paddingRight: value ? 30 : 12, paddingTop: 7, paddingBottom: 7, borderRadius: 10, border: '1px solid #E4E4E7', background: 'white', fontSize: 13, color: '#18181B', outline: 'none', width: 200, transition: 'width .2s' }}
+        onFocus={e => { e.currentTarget.style.width = '260px'; e.currentTarget.style.borderColor = '#A5B4FC'; }}
+        onBlur={e => { e.currentTarget.style.width = '200px'; e.currentTarget.style.borderColor = '#E4E4E7'; }}
+      />
+      {value && (
+        <button onClick={() => onChange('')} style={{ position: 'absolute', right: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#A1A1AA', display: 'flex', alignItems: 'center' }}>
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Sortable Column Header ────────────────────────────────────────────────────
+function SortHeader({ label, sortKey, currentKey, dir, onSort }: {
+  label: string; sortKey: string; currentKey: string; dir: 'asc' | 'desc'; onSort: (k: string) => void;
+}) {
+  const active = currentKey === sortKey;
+  return (
+    <th onClick={() => onSort(sortKey)} style={{ cursor: 'pointer', userSelect: 'none', padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: active ? '#4F46E5' : '#71717A', background: '#FAFAFA', whiteSpace: 'nowrap' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}
+        {active ? (dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <ChevronDown size={12} style={{ opacity: .3 }} />}
+      </span>
+    </th>
+  );
+}
+
+// ── Status Badge ──────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const cfg: Record<string, { bg: string; color: string; label: string }> = {
+    APPROVED: { bg: '#ECFDF5', color: '#059669', label: '✓ Approved' },
+    BLOCKED:  { bg: '#FFF1F2', color: '#E11D48', label: '✕ Blocked' },
+    FLAGGED:  { bg: '#FFFBEB', color: '#D97706', label: '⚑ Flagged' },
+  };
+  const c = cfg[status] || { bg: '#F4F4F5', color: '#71717A', label: status };
+  return (
+    <span style={{ background: c.bg, color: c.color, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{c.label}</span>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function ArchNode({ icon, label, highlight, dark }: { icon: React.ReactNode; label: string; highlight?: boolean; dark?: boolean }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minWidth: 80 }}>
+      <motion.div whileHover={{ scale: 1.08 }} style={{ width: 52, height: 52, borderRadius: 14, border: highlight ? '2px solid rgba(255,255,255,0.8)' : '1px solid rgba(255,255,255,0.3)', background: highlight ? 'rgba(255,255,255,0.22)' : dark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: highlight ? '0 0 32px rgba(255,255,255,0.25)' : 'none' }}>
         {icon}
-      </div>
-      <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: dark || highlight ? 'white' : '#4F46E5' }}>{label}</span>
+      </motion.div>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.9)', textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
     </div>
   );
 }
 
 function AnimatedConnector() {
   return (
-    <div className="flex-1 h-1 relative mx-2 rounded-full overflow-hidden"
-      style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.3), rgba(56,189,248,0.5))' }}>
-      <motion.div
-        className="absolute top-1/2 w-3 h-3 rounded-full -translate-y-1/2"
-        style={{ background: 'white', boxShadow: '0 0 8px rgba(255,255,255,0.8)' }}
-        animate={{ left: ['0%', '100%'], scale: [1, 1.2, 1] }}
-        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-      />
+    <div style={{ flex: 1, height: 2, position: 'relative', overflow: 'hidden', background: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
+      <motion.div animate={{ x: ['−100%', '200%'] }} transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+        style={{ position: 'absolute', left: 0, top: 0, width: '50%', height: '100%', background: 'linear-gradient(90deg,transparent,rgba(255,255,255,0.8),transparent)', borderRadius: 2 }} />
     </div>
+  );
+}
+
+function DepthOrb() {
+  return (
+    <motion.div animate={{ rotateY: [0, 360], rotateX: [8, -8, 8], y: [0, -8, 0] }} transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+      style={{ position: 'absolute', right: 28, bottom: 12, width: 112, height: 112, borderRadius: 32, background: 'linear-gradient(135deg,rgba(255,255,255,.34),rgba(56,189,248,.12))', border: '1px solid rgba(255,255,255,.35)', boxShadow: 'inset 12px 12px 20px rgba(255,255,255,.16), 16px 18px 35px rgba(20,10,90,.28)', transformStyle: 'preserve-3d', pointerEvents: 'none' }}>
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
+        style={{ position: 'absolute', inset: 20, borderRadius: '50%', border: '2px dashed rgba(255,255,255,.72)' }} />
+      <ShieldCheck size={37} style={{ position: 'absolute', left: 37, top: 37 }} />
+    </motion.div>
   );
 }
 
 function EmptyChart() {
   return (
-    <div className="h-52 flex flex-col items-center justify-center text-textMuted gap-2">
-      <Activity size={28} className="opacity-20" />
-      <p className="text-sm font-medium">No transaction data yet</p>
-      <p className="text-xs">Run the demo agent to start seeing data here</p>
+    <div style={{ height: 208, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#A1A1AA', gap: 8 }}>
+      <Activity size={28} style={{ opacity: .2 }} />
+      <p style={{ fontSize: 13, fontWeight: 600 }}>No transaction data yet</p>
+      <p style={{ fontSize: 12 }}>Run the demo agent to start seeing data here</p>
     </div>
   );
 }
@@ -693,12 +379,19 @@ function EmptyChart() {
 function ActivityTicker({ transactions }: { transactions: Transaction[] }) {
   const items = transactions.slice(0, 5);
   if (!items.length) return null;
-  return <div className="mb-5 overflow-hidden rounded-2xl px-4 py-2.5" style={{ background: 'linear-gradient(90deg,#EEF2FF,#FDF2F8,#ECFEFF)', border: '1px solid #DDD6FE' }}>
-    <motion.div className="flex gap-8 whitespace-nowrap text-xs font-mono" animate={{ x: [0, -24, 0] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}>
-      <span style={{ color: '#4F46E5', fontWeight: 800 }}>LIVE ACTIVITY</span>
-      {items.map(tx => <span key={tx.id} style={{ color: tx.status === 'APPROVED' ? '#059669' : tx.status === 'BLOCKED' ? '#E11D48' : '#D97706' }}>{tx.status} · ${tx.amount.toFixed(2)} · {tx.merchant}</span>)}
-    </motion.div>
-  </div>;
+  return (
+    <div style={{ marginBottom: 20, overflow: 'hidden', borderRadius: 16, padding: '10px 16px', background: 'linear-gradient(90deg,#EEF2FF,#FDF2F8,#ECFEFF)', border: '1px solid #DDD6FE' }}>
+      <motion.div style={{ display: 'flex', gap: 32, whiteSpace: 'nowrap', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}
+        animate={{ x: [0, -24, 0] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}>
+        <span style={{ color: '#4F46E5', fontWeight: 800 }}>LIVE ACTIVITY</span>
+        {items.map(tx => (
+          <span key={tx.id} style={{ color: tx.status === 'APPROVED' ? '#059669' : tx.status === 'BLOCKED' ? '#E11D48' : '#D97706' }}>
+            {tx.status} · ${tx.amount.toFixed(2)} · {tx.merchant}
+          </span>
+        ))}
+      </motion.div>
+    </div>
+  );
 }
 
 function AnomalyBanner({ alerts, onDismiss }: { alerts: Anomaly[]; onDismiss: (id: string) => void }) {
@@ -706,11 +399,26 @@ function AnomalyBanner({ alerts, onDismiss }: { alerts: Anomaly[]; onDismiss: (i
   useEffect(() => { setIndex(0); }, [alerts.length]);
   useEffect(() => {
     if (alerts.length < 2) return;
-    const timer = window.setInterval(() => setIndex(current => (current + 1) % alerts.length), 5000);
+    const timer = window.setInterval(() => setIndex(c => (c + 1) % alerts.length), 5000);
     return () => window.clearInterval(timer);
   }, [alerts.length]);
   const alert = alerts[index];
-  return <AnimatePresence mode="wait">{alert && <motion.div key={alert.id} initial={{ opacity: 0, height: 0, y: -12 }} animate={{ opacity: 1, height: 'auto', y: 0 }} exit={{ opacity: 0, height: 0, y: -12 }} transition={{ duration: .3 }} className="mb-5 overflow-hidden rounded-2xl"><div className="flex items-center gap-3 px-5 py-3.5 text-white" style={{ background: alert.severity === 'critical' ? 'linear-gradient(100deg,#F59E0B,#F43F5E)' : 'linear-gradient(100deg,#F59E0B,#FB7185)', boxShadow: '0 12px 28px -18px rgba(244,63,94,.7)' }}><AlertTriangle size={20} /><p className="flex-1 text-sm font-semibold">{alert.message}</p>{alerts.length > 1 && <span className="text-xs font-mono opacity-80">{index + 1}/{alerts.length}</span>}<button aria-label="Dismiss anomaly alert" onClick={() => onDismiss(alert.id)} className="p-1 rounded-lg hover:bg-white/15"><X size={18} /></button></div></motion.div>}</AnimatePresence>;
+  return (
+    <AnimatePresence mode="wait">
+      {alert && (
+        <motion.div key={alert.id} initial={{ opacity: 0, height: 0, y: -12 }} animate={{ opacity: 1, height: 'auto', y: 0 }} exit={{ opacity: 0, height: 0, y: -12 }} transition={{ duration: .3 }} style={{ marginBottom: 20, overflow: 'hidden', borderRadius: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', color: 'white', background: alert.severity === 'critical' ? 'linear-gradient(100deg,#F59E0B,#F43F5E)' : 'linear-gradient(100deg,#F59E0B,#FB7185)', boxShadow: '0 12px 28px -18px rgba(244,63,94,.7)' }}>
+            <AlertTriangle size={20} />
+            <p style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{alert.message}</p>
+            {alerts.length > 1 && <span style={{ fontSize: 12, fontFamily: 'monospace', opacity: .8 }}>{index + 1}/{alerts.length}</span>}
+            <button aria-label="Dismiss anomaly alert" onClick={() => onDismiss(alert.id)} style={{ padding: 4, borderRadius: 8, background: 'rgba(255,255,255,.15)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+              <X size={18} />
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 type ComplianceReportData = {
@@ -742,12 +450,13 @@ function ComplianceReport() {
   const download = () => {
     if (!report) return;
     const rows = [
-      ['Metric', 'Value'],
-      ['Range', `${start} to ${end}`],
-      ['Total processed', report.summary.total], ['Approved', report.summary.approved], ['Blocked', report.summary.blocked], ['Flagged', report.summary.flagged],
-      [], ['Block reason', 'Count'], ...report.blockReasons.map(x => [x.reason, x.count]), [], ['Policy change', 'Occurred at'], ...report.policyChanges.map(x => [x.detail, x.createdAt])
+      ['Metric', 'Value'], ['Range', `${start} to ${end}`],
+      ['Total processed', report.summary.total], ['Approved', report.summary.approved],
+      ['Blocked', report.summary.blocked], ['Flagged', report.summary.flagged],
+      [], ['Block reason', 'Count'], ...report.blockReasons.map(x => [x.reason, x.count]),
+      [], ['Policy change', 'Occurred at'], ...report.policyChanges.map(x => [x.detail, x.createdAt])
     ];
-    const csv = rows.map(row => row.map(value => JSON.stringify(value ?? '')).join(',')).join('\n');
+    const csv = rows.map(row => row.map(v => JSON.stringify(v ?? '')).join(',')).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = `sentripay-compliance-${start}-to-${end}.csv`; link.click(); URL.revokeObjectURL(url);
   };
@@ -756,101 +465,567 @@ function ComplianceReport() {
     if (!report) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return alert('Popup blocked. Please allow popups to export PDF report.');
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>SentriPay Compliance Audit Report (${start} to ${end})</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #18181B; }
-          .header { border-bottom: 2px solid #E2E8F0; padding-bottom: 20px; margin-bottom: 30px; }
-          .title { font-size: 24px; font-weight: bold; color: #1E1B4B; }
-          .subtitle { font-size: 13px; color: #64748B; margin-top: 4px; }
-          .meta { font-size: 12px; font-family: monospace; color: #475569; margin-top: 15px; }
-          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }
-          .card { padding: 15px; border-radius: 10px; border: 1px solid #E2E8F0; background: #F8FAFC; }
-          .card-value { font-size: 22px; font-weight: bold; font-family: monospace; }
-          .card-label { font-size: 11px; text-transform: uppercase; color: #64748B; margin-top: 4px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 13px; }
-          th { text-align: left; padding: 10px; background: #F1F5F9; border-bottom: 2px solid #CBD5E1; }
-          td { padding: 10px; border-bottom: 1px solid #E2E8F0; }
-          .section-title { font-size: 16px; font-weight: bold; margin-bottom: 12px; color: #0F172A; }
-          .footer { font-size: 11px; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 20px; margin-top: 40px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="title">SentriPay Autonomous Payment Compliance Report</div>
-          <div class="subtitle">Official audit ledger of deterministic policy enforcement decisions.</div>
-          <div class="meta">Audit Period: ${start} to ${end} | Generated At: ${new Date().toISOString()}</div>
-        </div>
-
-        <div class="section-title">Summary Metrics</div>
-        <div class="grid">
-          <div class="card"><div class="card-value" style="color: #4F46E5;">${report.summary.total}</div><div class="card-label">Total Processed</div></div>
-          <div class="card"><div class="card-value" style="color: #059669;">${report.summary.approved}</div><div class="card-label">Approved</div></div>
-          <div class="card"><div class="card-value" style="color: #E11D48;">${report.summary.blocked}</div><div class="card-label">Blocked</div></div>
-          <div class="card"><div class="card-value" style="color: #D97706;">${report.summary.flagged}</div><div class="card-label">Flagged for Review</div></div>
-        </div>
-
-        <div class="section-title">Top Enforcement Block Reasons</div>
-        <table>
-          <thead><tr><th>Violation Signature</th><th style="width: 120px;">Incidents</th></tr></thead>
-          <tbody>
-            ${report.blockReasons.length ? report.blockReasons.map(r => `<tr><td>${r.reason}</td><td><strong>${r.count}</strong></td></tr>`).join('') : '<tr><td colspan="2">No blocks recorded in audit range.</td></tr>'}
-          </tbody>
-        </table>
-
-        <div class="section-title">Policy Changes & Operator Actions</div>
-        <table>
-          <thead><tr><th>Action / Detail</th><th style="width: 200px;">Timestamp</th></tr></thead>
-          <tbody>
-            ${report.policyChanges.length ? report.policyChanges.map(c => `<tr><td>${c.detail}</td><td>${new Date(c.createdAt).toLocaleString()}</td></tr>`).join('') : '<tr><td colspan="2">No policy modifications in audit range.</td></tr>'}
-          </tbody>
-        </table>
-
-        <div class="footer">
-          Certified by SentriPay Gateway Enforcement Engine • Cryptographic Audit Ledger
-        </div>
-        <script>
-          window.onload = function() { window.print(); };
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+    const html = `<!DOCTYPE html><html><head><title>SentriPay Compliance (${start} to ${end})</title><style>body{font-family:system-ui,sans-serif;padding:40px;color:#18181B}.title{font-size:24px;font-weight:800;color:#1E1B4B}.meta{font-size:12px;font-family:monospace;color:#475569;margin-top:8px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:24px 0}.card{padding:16px;border-radius:10px;border:1px solid #E2E8F0;background:#F8FAFC}.cv{font-size:22px;font-weight:800;font-family:monospace}.cl{font-size:11px;text-transform:uppercase;color:#64748B;margin-top:4px}table{width:100%;border-collapse:collapse;margin-bottom:24px;font-size:13px}th{text-align:left;padding:10px;background:#F1F5F9;border-bottom:2px solid #CBD5E1}td{padding:10px;border-bottom:1px solid #E2E8F0}.footer{font-size:11px;color:#94A3B8;text-align:center;border-top:1px solid #E2E8F0;padding-top:16px;margin-top:32px}</style></head><body>
+      <div class="title">SentriPay Compliance Report</div><div class="meta">Period: ${start} to ${end} | Generated: ${new Date().toISOString()}</div>
+      <div class="grid"><div class="card"><div class="cv" style="color:#4F46E5">${report.summary.total}</div><div class="cl">Total</div></div><div class="card"><div class="cv" style="color:#059669">${report.summary.approved}</div><div class="cl">Approved</div></div><div class="card"><div class="cv" style="color:#E11D48">${report.summary.blocked}</div><div class="cl">Blocked</div></div><div class="card"><div class="cv" style="color:#D97706">${report.summary.flagged}</div><div class="cl">Flagged</div></div></div>
+      <h3>Block Reasons</h3><table><thead><tr><th>Reason</th><th>Count</th></tr></thead><tbody>${report.blockReasons.map(r => `<tr><td>${r.reason}</td><td><b>${r.count}</b></td></tr>`).join('') || '<tr><td colspan="2">None</td></tr>'}</tbody></table>
+      <h3>Policy Changes</h3><table><thead><tr><th>Detail</th><th>Timestamp</th></tr></thead><tbody>${report.policyChanges.map(c => `<tr><td>${c.detail}</td><td>${new Date(c.createdAt).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan="2">None</td></tr>'}</tbody></table>
+      <div class="footer">SentriPay Gateway Enforcement Engine</div><script>window.onload=function(){window.print()}</script></body></html>`;
+    printWindow.document.write(html); printWindow.document.close();
   };
 
   const maxReason = Math.max(...(report?.blockReasons.map(x => x.count) || [1]), 1);
-  return <section className="mt-8 rounded-3xl p-6 md:p-8" style={{ background: 'linear-gradient(135deg,#FFF1F2 0%,#FFF7ED 52%,#FFFFFF 100%)', border: '1px solid #FECDD3', boxShadow: '0 20px 50px -28px rgba(244,63,94,0.42)' }}>
-    <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-5 mb-7">
-      <div><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#FFE4E6', color: '#E11D48', boxShadow: '0 6px 16px -8px rgba(225,29,72,.6)' }}><FileCheck2 size={20} /></div><h2 className="text-2xl font-bold" style={{ fontFamily: 'Outfit, sans-serif', color: '#18181B' }}>Compliance Report</h2></div><p className="mt-2" style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: '#BE123C' }}>A traceable story of every decision, drawn from the ledger.</p></div>
-      <div className="flex flex-wrap items-center gap-2 rounded-full p-1.5" style={{ background: 'rgba(255,255,255,.78)', border: '1px solid #FECDD3' }}><CalendarRange size={15} style={{ color: '#E11D48', marginLeft: 8 }} /><input aria-label="Report start date" type="date" value={start} max={end} onChange={e => setStart(e.target.value)} className="rounded-full px-3 py-2 text-xs font-mono outline-none" style={{ background: 'transparent', color: '#18181B' }} /><span style={{ color: '#A1A1AA' }}>→</span><input aria-label="Report end date" type="date" value={end} min={start} max={today} onChange={e => setEnd(e.target.value)} className="rounded-full px-3 py-2 text-xs font-mono outline-none" style={{ background: 'transparent', color: '#18181B' }} /><button onClick={generate} disabled={loading} className="px-5 py-2.5 rounded-full text-sm font-bold text-white disabled:opacity-60" style={{ background: '#18181B', boxShadow: '0 6px 16px -8px rgba(24,24,27,.55)' }}>{loading ? 'Generating…' : 'Generate Report'}</button>{report && <button onClick={download} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold" style={{ background: '#FFFFFF', border: '1px solid #FDA4AF', color: '#BE123C' }}><Download size={15} /> Download CSV</button>}
-{report && <button onClick={downloadPdf} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold ml-1" style={{ background: '#FFFFFF', border: '1px solid #C7D2FE', color: '#4F46E5' }}><FileText size={15} /> Export PDF</button>}</div>
+
+  return (
+    <section style={{ marginTop: 32, borderRadius: 24, padding: '32px', background: 'linear-gradient(135deg,#FFF1F2,#FFF7ED,#FFFFFF)', border: '1px solid #FECDD3', boxShadow: '0 20px 50px -28px rgba(244,63,94,0.3)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, marginBottom: 28 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: '#FFE4E6', color: '#E11D48', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px -8px rgba(225,29,72,.6)' }}><FileCheck2 size={20} /></div>
+            <h2 style={{ fontSize: 22, fontWeight: 800, fontFamily: 'Outfit, sans-serif', color: '#18181B' }}>Compliance Report</h2>
+          </div>
+          <p style={{ marginTop: 8, fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: '#BE123C', fontSize: 14 }}>A traceable story of every decision, drawn from the ledger.</p>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,.78)', border: '1px solid #FECDD3', borderRadius: 24, padding: '8px 12px' }}>
+          <CalendarRange size={15} style={{ color: '#E11D48' }} />
+          <input aria-label="Report start date" type="date" value={start} max={end} onChange={e => setStart(e.target.value)} style={{ background: 'transparent', border: 'none', fontSize: 12, fontFamily: 'monospace', color: '#18181B', outline: 'none' }} />
+          <span style={{ color: '#A1A1AA' }}>→</span>
+          <input aria-label="Report end date" type="date" value={end} min={start} max={today} onChange={e => setEnd(e.target.value)} style={{ background: 'transparent', border: 'none', fontSize: 12, fontFamily: 'monospace', color: '#18181B', outline: 'none' }} />
+          <button onClick={generate} disabled={loading} style={{ padding: '8px 20px', borderRadius: 24, fontSize: 13, fontWeight: 700, color: 'white', background: '#18181B', border: 'none', cursor: 'pointer', opacity: loading ? .6 : 1 }}>{loading ? 'Generating…' : 'Generate'}</button>
+          {report && <>
+            <button onClick={download} style={{ padding: '8px 16px', borderRadius: 24, fontSize: 12, fontWeight: 600, background: 'white', border: '1px solid #FDA4AF', color: '#BE123C', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}><Download size={13} />CSV</button>
+            <button onClick={downloadPdf} style={{ padding: '8px 16px', borderRadius: 24, fontSize: 12, fontWeight: 600, background: 'white', border: '1px solid #C7D2FE', color: '#4F46E5', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}><FileText size={13} />PDF</button>
+          </>}
+        </div>
+      </div>
+      {error && <p style={{ color: '#E11D48', fontSize: 13, marginBottom: 16 }}>{error}</p>}
+      {report && (
+        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4 }} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(100px,1fr))', gap: 16 }}>
+            {[['Processed', report.summary.total, '#9F1239'], ['Approved', report.summary.approved, '#059669'], ['Blocked', report.summary.blocked, '#E11D48'], ['Flagged', report.summary.flagged, '#D97706']].map(([label, value, color]) => (
+              <div key={String(label)} style={{ borderRadius: 16, padding: 20, background: 'rgba(255,255,255,.8)', border: `1px solid ${color}30` }}>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 28, fontWeight: 800, color: String(color) }}><AnimatedNumber value={Number(value)} /></div>
+                <div style={{ marginTop: 4, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#71717A' }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 20 }}>
+            <div style={{ borderRadius: 16, padding: 20, background: 'rgba(255,255,255,.78)', border: '1px solid #FECDD3' }}>
+              <h3 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, marginBottom: 20 }}>Block-reason breakdown</h3>
+              {report.blockReasons.length ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {report.blockReasons.map(item => (
+                    <div key={item.reason}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                        <span style={{ color: '#52525B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{item.reason}</span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#E11D48' }}>{item.count}</span>
+                      </div>
+                      <div style={{ height: 10, background: '#FFE4E6', borderRadius: 6, overflow: 'hidden' }}>
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${(item.count / maxReason) * 100}%` }} transition={{ duration: .75 }}
+                          style={{ height: '100%', background: 'linear-gradient(90deg,#F43F5E,#F472B6)', borderRadius: 6 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <p style={{ fontSize: 13, color: '#71717A' }}>No blocked payments in this range.</p>}
+            </div>
+            <div style={{ borderRadius: 16, padding: 20, background: 'rgba(255,255,255,.78)', border: '1px solid #FED7AA' }}>
+              <h3 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, marginBottom: 20 }}>Policy changes in range</h3>
+              {report.policyChanges.length ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {report.policyChanges.map((item, i) => (
+                    <div key={item.id} style={{ display: 'flex', gap: 12 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <span style={{ width: 12, height: 12, borderRadius: 6, background: item.action === 'DEMO_RESET' ? '#F59E0B' : '#7C3AED', flexShrink: 0 }} />
+                        {i < report.policyChanges.length - 1 && <span style={{ width: 1, flex: 1, background: '#FED7AA', marginTop: 4 }} />}
+                      </div>
+                      <div style={{ paddingBottom: 8 }}>
+                        <p style={{ fontSize: 13, color: '#27272A' }}>{item.detail}</p>
+                        <p style={{ fontSize: 11, fontFamily: 'monospace', marginTop: 4, color: '#A1A1AA' }}>{new Date(item.createdAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <p style={{ fontSize: 13, color: '#71717A' }}>No policy changes recorded.</p>}
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </section>
+  );
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [chartData, setChartData] = useState<ChartPoint[]>([]);
+  const [, setMerchants] = useState<MerchantStat[]>([]);  const [budget, setBudget] = useState<BudgetInfo | null>(null);
+  const [insights, setInsights] = useState<InsightInfo | null>(null);
+  const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState(false);
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [dismissedAnomalies, setDismissedAnomalies] = useState<Set<string>>(new Set());
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Phase I state
+  const [timeRange, setTimeRange] = useState('24h');
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [rangeStats, setRangeStats] = useState<StatsData | null>(null);
+  const [ruleHits, setRuleHits] = useState<RuleHit[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+
+  // Transaction table state
+  const [filterStatus, setFilterStatus] = useState('ALL');
+  const [filterAgent, setFilterAgent] = useState('ALL');
+  const [filterMerchant, setFilterMerchant] = useState('');
+  const [filterMin, setFilterMin] = useState('');
+  const [filterMax, setFilterMax] = useState('');
+  const [sortKey, setSortKey] = useState('createdAt');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+
+  const fetchAll = useCallback(async () => {
+    setFetchError(null);
+    try {
+      await Promise.all([
+        fetch(apiUrl('/api/transactions')).then(r => r.json()).then(setTransactions),
+        fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData),
+        fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants),
+        fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget),
+        fetch(apiUrl('/api/insights')).then(r => r.json()).then(setInsights),
+        fetch(apiUrl('/api/agents')).then(r => r.json()).then(setAgents),
+      ]);
+    } catch (err: any) {
+      setFetchError(err?.message || 'Failed to fetch dashboard data');
+    } finally { setIsLoading(false); }
+  }, []);
+
+  const fetchRangeData = useCallback(async (range: string) => {
+    try {
+      const [stats, hits] = await Promise.all([
+        fetch(apiUrl(`/api/transactions/stats?range=${range}`)).then(r => r.json()),
+        fetch(apiUrl(`/api/transactions/rule-hits?range=${range}`)).then(r => r.json()),
+      ]);
+      setRangeStats(stats);
+      setRuleHits(hits.hits || []);
+    } catch (e) { console.error(e); }
+  }, []);
+
+  const refreshAnomalies = useCallback(() =>
+    fetch(apiUrl('/api/anomalies')).then(r => r.json()).then(d => setAnomalies(d.alerts || [])).catch(console.error), []);
+
+  useEffect(() => {
+    fetchAll();
+    fetchRangeData(timeRange);
+    refreshAnomalies();
+    const onNewTx = (tx: Transaction) => {
+      setTransactions(prev => [tx, ...prev].slice(0, 150));
+      setLiveIds(prev => new Set([...prev, tx.id]));
+      fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
+      fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
+      refreshAnomalies();
+    };
+    const onDemoReset = () => {
+      fetchAll();
+      fetchRangeData(timeRange);
+      setLiveIds(new Set());
+      setToast(true);
+      setTimeout(() => setToast(false), 3000);
+    };
+    const onTxUpdated = (updated: Transaction) => {
+      setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+      fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
+    };
+    socket.on('new_transaction', onNewTx);
+    socket.on('demo_reset', onDemoReset);
+    socket.on('transaction_updated', onTxUpdated);
+    const anomalyInterval = window.setInterval(refreshAnomalies, 45000);
+    return () => {
+      socket.off('new_transaction', onNewTx);
+      socket.off('demo_reset', onDemoReset);
+      socket.off('transaction_updated', onTxUpdated);
+      window.clearInterval(anomalyInterval);
+    };
+  }, []);
+
+  useEffect(() => { fetchRangeData(timeRange); }, [timeRange]);
+
+  const handleSort = useCallback((key: string) => {
+    setSortDir(d => key === sortKey ? (d === 'asc' ? 'desc' : 'asc') : 'desc');
+    setSortKey(key);
+    setPage(1);
+  }, [sortKey]);
+
+  const filteredTxs = useMemo(() => {
+    let arr = [...transactions];
+    if (globalSearch) {
+      const q = globalSearch.toLowerCase();
+      arr = arr.filter(tx => tx.merchant.toLowerCase().includes(q) || tx.agentId.toLowerCase().includes(q) || tx.status.toLowerCase().includes(q) || tx.reason?.toLowerCase().includes(q));
+    }
+    if (filterStatus !== 'ALL') arr = arr.filter(tx => tx.status === filterStatus);
+    if (filterAgent !== 'ALL') arr = arr.filter(tx => tx.agentId === filterAgent);
+    if (filterMerchant) arr = arr.filter(tx => tx.merchant.toLowerCase().includes(filterMerchant.toLowerCase()));
+    if (filterMin) arr = arr.filter(tx => tx.amount >= parseFloat(filterMin));
+    if (filterMax) arr = arr.filter(tx => tx.amount <= parseFloat(filterMax));
+    arr.sort((a, b) => {
+      let va: any = a[sortKey as keyof Transaction];
+      let vb: any = b[sortKey as keyof Transaction];
+      if (sortKey === 'createdAt' || sortKey === 'timestamp') {
+        va = new Date(va || 0).getTime();
+        vb = new Date(vb || 0).getTime();
+      }
+      if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va;
+      return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+    return arr;
+  }, [transactions, globalSearch, filterStatus, filterAgent, filterMerchant, filterMin, filterMax, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTxs.length / PAGE_SIZE));
+  const pagedTxs = filteredTxs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const exportTransactions = async () => {
+    try {
+      const rows: Transaction[] = await fetch(apiUrl('/api/transactions/export')).then(r => r.json());
+      const header = ['id', 'createdAt', 'agentId', 'merchant', 'amount', 'status', 'riskScore', 'settlementId', 'reason'];
+      const csv = [header, ...rows.map(row => header.map(key => JSON.stringify((row as any)[key] ?? '')))].map(row => row.join(',')).join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = `sentripay-transactions-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error('Export failed:', e); }
+  };
+
+  // Derive sparkline-like data from chart
+  const sparkApproved = chartData.slice(-7).map(d => d.approved);
+  const sparkBlocked = chartData.slice(-7).map(d => d.blocked); // approx
+
+  const totalTxs = rangeStats?.total ?? transactions.length;
+  const blockedTxs = rangeStats?.blocked ?? transactions.filter(t => t.status === 'BLOCKED').length;
+  const approvalRate = rangeStats?.approvalRate ?? (totalTxs > 0 ? parseFloat(((transactions.filter(t => t.status === 'APPROVED').length / totalTxs) * 100).toFixed(1)) : 0);
+  const dailySpend = rangeStats?.totalSpend ?? (budget?.spent || 0);
+
+  const uniqueAgentIds = [...new Set(transactions.map(t => t.agentId))];
+
+  return (
+    <div style={{ padding: '24px 32px', maxWidth: 1440, margin: '0 auto', width: '100%' }}>
+      {/* Activity Ticker */}
+      <ActivityTicker transactions={transactions} />
+      <AnomalyBanner alerts={anomalies.filter(a => !dismissedAnomalies.has(a.id))} onDismiss={id => setDismissedAnomalies(prev => new Set([...prev, id]))} />
+      <Toast msg="✓ Demo data reset — 110 baseline records loaded" visible={toast} />
+
+      {/* Sticky Top Bar */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(12px)', borderRadius: 20, padding: '12px 20px', marginBottom: 24, border: '1px solid rgba(229,231,235,0.7)', boxShadow: '0 4px 24px -8px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: 22, color: '#18181B', margin: 0 }}>Overview</h1>
+          <p style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: '#7C3AED', fontSize: 13, margin: 0 }}>Every autonomous payment, kept intentionally in bounds.</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <GlobalSearch value={globalSearch} onChange={v => { setGlobalSearch(v); setPage(1); }} />
+          <RangePills value={timeRange} onChange={setTimeRange} />
+          <NotificationBell transactions={transactions} />
+          <button onClick={exportTransactions}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 24, fontSize: 13, fontWeight: 600, background: 'white', border: '1px solid #D8D4FE', color: '#4F46E5', boxShadow: '0 4px 14px -5px rgba(79,70,229,0.25)', cursor: 'pointer', transition: 'all .2s' }}
+            onMouseOver={e => { e.currentTarget.style.background = '#F5F3FF'; }}
+            onMouseOut={e => { e.currentTarget.style.background = 'white'; }}>
+            <Download size={14} /> Export CSV
+          </button>
+        </div>
+      </div>
+
+      {fetchError && (
+        <div style={{ marginBottom: 24, padding: 16, borderRadius: 16, background: '#FFF1F2', border: '1px solid #FECDD3', color: '#E11D48', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}><AlertTriangle size={18} />{fetchError}</div>
+          <button onClick={fetchAll} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 10, background: '#E11D48', color: 'white', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            <RotateCcw size={12} />Retry
+          </button>
+        </div>
+      )}
+
+      {/* ── BENTO GRID: Stat Row ── */}
+      {isLoading && transactions.length === 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 20, marginBottom: 32 }}>
+          {[1, 2, 3, 4].map(i => <div key={i} style={{ height: 120, borderRadius: 20, background: 'white', border: '1px solid #F4F4F5' }} />)}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 20, marginBottom: 32 }}>
+          <StatCard value={totalTxs} label="Processed" color="#4F46E5" icon={<Activity size={18} />} sparkData={sparkApproved} />
+          <StatCard value={blockedTxs} label="Blocked" color="#E11D48" icon={<ShieldAlert size={18} />} sparkData={sparkBlocked} />
+          <StatCard value={`${approvalRate}%`} label="Approval Rate" color="#10B981" icon={<CheckCircle2 size={18} />} />
+          <StatCard value={`$${dailySpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} label={`${timeRange} Spend`} color="#7C3AED" icon={<DollarSign size={18} />} mono />
+        </div>
+      )}
+
+      {/* ── BENTO GRID: Main layout ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24, marginBottom: 32 }}>
+
+        {/* Left column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+          {/* Hero: Sentinel Architecture */}
+          <div style={{ borderRadius: 24, padding: 32, position: 'relative', overflow: 'hidden', background: 'linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%)', boxShadow: '0 8px 40px -8px rgba(79,70,229,0.45)', color: 'white' }}>
+            <DepthOrb />
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{ fontSize: 11, fontFamily: 'monospace', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4, color: 'rgba(255,255,255,0.6)' }}>x402 Protocol</div>
+              <h2 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: 24, margin: '0 0 6px' }}>Sentinel Architecture</h2>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)', margin: 0 }}>Real-time interception and policy enforcement gateway</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0, maxWidth: 400, marginTop: 24, position: 'relative', zIndex: 1 }}>
+              <ArchNode icon={<Cpu size={20} />} label="AI Agent" dark />
+              <AnimatedConnector />
+              <ArchNode icon={<ShieldCheck size={22} />} label="Policy Engine" highlight />
+              <AnimatedConnector />
+              <ArchNode icon={<Banknote size={20} />} label="Settlement" dark />
+            </div>
+          </div>
+
+          {/* Traffic Volume Chart */}
+          <div style={{ borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#F0F9FF,#FFFFFF)', border: '1px solid #BAE6FD', boxShadow: '0 8px 24px -14px rgba(14,165,233,0.28)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: '#F0F9FF', color: '#0EA5E9', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px -2px rgba(14,165,233,0.3)' }}><Activity size={16} /></div>
+                <h3 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 16, margin: 0 }}>Transaction Volume</h3>
+              </div>
+              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#71717A' }}>Last {chartData.length} transactions</span>
+            </div>
+            {chartData.length === 0 ? <EmptyChart /> : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="cA" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#34D399" /><stop offset="100%" stopColor="#10B981" /></linearGradient>
+                    <linearGradient id="cF" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FCD34D" /><stop offset="100%" stopColor="#F59E0B" /></linearGradient>
+                    <linearGradient id="cB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FB7185" /><stop offset="100%" stopColor="#F43F5E" /></linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E4E7" />
+                  <XAxis dataKey="time" tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E4E4E7', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }} formatter={(val: any) => [`$${Number(val).toFixed(2)}`, undefined]} />
+                  <Legend wrapperStyle={{ fontSize: 12, fontFamily: 'Inter, sans-serif', paddingTop: 10 }} />
+                  <Bar dataKey="approved" stackId="a" fill="url(#cA)" name="Approved" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="flagged" stackId="a" fill="url(#cF)" name="Flagged" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="blocked" stackId="a" fill="url(#cB)" name="Blocked" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Demo Controls */}
+          <DemoControlsPanel onDataChanged={() => { fetchAll(); fetchRangeData(timeRange); }} />
+        </div>
+
+        {/* Right column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Spend Gauge */}
+          <div style={{ borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#FFF7ED,#FFFFFF)', border: '1px solid #FED7AA', boxShadow: '0 8px 24px -14px rgba(234,88,12,0.2)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: '#FFF7ED', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Zap size={14} /></div>
+              <span style={{ fontWeight: 700, fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>Budget Usage</span>
+            </div>
+            {budget ? <SpendGauge spent={budget.spent} limit={budget.limit} /> : (
+              <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A1A1AA', fontSize: 13 }}>Loading…</div>
+            )}
+          </div>
+
+          {/* Agent Leaderboard */}
+          <div style={{ borderRadius: 20, padding: 20, background: 'linear-gradient(135deg,#F5F3FF,#FFFFFF)', border: '1px solid #DDD6FE', boxShadow: '0 8px 24px -14px rgba(124,58,237,0.15)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: '#F5F3FF', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Users size={14} /></div>
+              <span style={{ fontWeight: 700, fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>Agent Leaderboard</span>
+            </div>
+            {agents.length > 0 ? (
+              <AgentLeaderboard agents={agents} />
+            ) : (
+              <div style={{ textAlign: 'center', color: '#A1A1AA', fontSize: 13, padding: '16px 0' }}>No agents loaded</div>
+            )}
+          </div>
+
+          {/* Top Rules Triggered */}
+          <div style={{ borderRadius: 20, padding: 20, background: 'linear-gradient(135deg,#FFF1F2,#FFFFFF)', border: '1px solid #FECDD3', boxShadow: '0 8px 24px -14px rgba(225,29,72,0.15)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: '#FFF1F2', color: '#E11D48', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BarChart2 size={14} /></div>
+                <span style={{ fontWeight: 700, fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>Top Rules Triggered</span>
+              </div>
+              <span style={{ fontSize: 10, color: '#A1A1AA', fontFamily: 'monospace' }}>{timeRange}</span>
+            </div>
+            <RuleHitsChart hits={ruleHits} />
+          </div>
+
+          {/* Live Intelligence */}
+          {insights && (
+            <div style={{ borderRadius: 20, padding: 20, background: 'linear-gradient(135deg,#ECFDF5,#EFF6FF)', border: '1px solid #A7F3D0', boxShadow: '0 10px 24px -18px rgba(5,150,105,.35)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#047857', marginBottom: 16 }}>
+                <TrendingUp size={16} />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Live Intelligence</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#64748B' }}>7d vs prev week</div>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 20, color: insights.spendChangePct !== null && insights.spendChangePct > 0 ? '#D97706' : '#059669' }}>
+                    {insights.spendChangePct === null ? '—' : `${insights.spendChangePct >= 0 ? '+' : ''}${insights.spendChangePct.toFixed(1)}%`}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#64748B' }}>Busiest hour</div>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 20, color: '#2563EB' }}>
+                    {insights.busiestHour === null ? '—' : `${String(insights.busiestHour).padStart(2, '0')}:00`}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Review Queue */}
+      <ReviewQueue transactions={transactions} onInspect={setSelectedTx} onActionComplete={fetchAll} />
+
+      {/* ── Live Feed: Sortable, Paginated, Filtered ── */}
+      <div style={{ background: 'white', borderRadius: 24, border: '1px solid #E4E4E7', boxShadow: '0 8px 32px -12px rgba(0,0,0,0.06)', overflow: 'hidden', marginTop: 24 }}>
+        {/* Feed header + filters */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #F4F4F5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: '#EEF2FF', color: '#4F46E5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Activity size={16} /></div>
+            <span style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 16 }}>Live Feed</span>
+            <span style={{ background: '#F4F4F5', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700, color: '#71717A' }}>{filteredTxs.length} records</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* Status filter */}
+            <div style={{ display: 'flex', gap: 2, background: '#F9FAFB', border: '1px solid #E4E4E7', borderRadius: 10, padding: 3 }}>
+              {['ALL', 'APPROVED', 'BLOCKED', 'FLAGGED'].map(s => (
+                <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }}
+                  style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all .15s',
+                    background: filterStatus === s ? '#4F46E5' : 'transparent',
+                    color: filterStatus === s ? 'white' : '#71717A' }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            {/* Agent filter */}
+            <select value={filterAgent} onChange={e => { setFilterAgent(e.target.value); setPage(1); }}
+              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E4E4E7', fontSize: 12, color: '#52525B', background: 'white', cursor: 'pointer' }}>
+              <option value="ALL">All Agents</option>
+              {uniqueAgentIds.map(id => <option key={id} value={id}>{id.replace('agent-', '').replace(/-\d+$/, '').replace('-', ' ').toUpperCase()}</option>)}
+            </select>
+            {/* Merchant search */}
+            <input value={filterMerchant} onChange={e => { setFilterMerchant(e.target.value); setPage(1); }}
+              placeholder="Merchant…" style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E4E4E7', fontSize: 12, width: 100, color: '#18181B', outline: 'none' }} />
+            {/* Amount range */}
+            <input value={filterMin} onChange={e => { setFilterMin(e.target.value); setPage(1); }}
+              placeholder="Min $" style={{ padding: '7px 8px', borderRadius: 8, border: '1px solid #E4E4E7', fontSize: 12, width: 64, color: '#18181B', outline: 'none' }} />
+            <input value={filterMax} onChange={e => { setFilterMax(e.target.value); setPage(1); }}
+              placeholder="Max $" style={{ padding: '7px 8px', borderRadius: 8, border: '1px solid #E4E4E7', fontSize: 12, width: 64, color: '#18181B', outline: 'none' }} />
+            {/* Reset filters */}
+            {(filterStatus !== 'ALL' || filterAgent !== 'ALL' || filterMerchant || filterMin || filterMax || globalSearch) && (
+              <button onClick={() => { setFilterStatus('ALL'); setFilterAgent('ALL'); setFilterMerchant(''); setFilterMin(''); setFilterMax(''); setGlobalSearch(''); setPage(1); }}
+                style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E4E4E7', background: 'white', fontSize: 12, color: '#71717A', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <X size={12} />Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <SortHeader label="Time" sortKey="createdAt" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortHeader label="Merchant" sortKey="merchant" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortHeader label="Agent" sortKey="agentId" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortHeader label="Amount" sortKey="amount" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortHeader label="Status" sortKey="status" currentKey={sortKey} dir={sortDir} onSort={handleSort} />
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#71717A', background: '#FAFAFA' }}>Risk</th>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#71717A', background: '#FAFAFA' }}>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedTxs.length === 0 && (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: '#A1A1AA', fontSize: 13 }}>No transactions match your filters</td></tr>
+              )}
+              <AnimatePresence initial={false}>
+                {pagedTxs.map((tx, i) => {
+                  const isLive = liveIds.has(tx.id);
+                  const rowBg = tx.status === 'BLOCKED' ? 'rgba(254,241,242,0.4)' : tx.status === 'FLAGGED' ? 'rgba(255,251,235,0.4)' : 'transparent';
+                  const accentColor = tx.status === 'BLOCKED' ? '#E11D48' : tx.status === 'FLAGGED' ? '#D97706' : '#10B981';
+                  return (
+                    <motion.tr
+                      key={tx.id}
+                      initial={{ opacity: 0, x: isLive ? 12 : 0 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                      transition={{ duration: .25, delay: i * 0.01 }}
+                      onClick={() => setSelectedTx(tx)}
+                      style={{ background: rowBg, borderBottom: '1px solid #F9FAFB', cursor: 'pointer', transition: 'background .15s', position: 'relative' }}
+                      onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.background = `${accentColor}10`; }}
+                      onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.background = rowBg; }}>
+                      {/* Left accent bar */}
+                      <td style={{ padding: '10px 12px', paddingLeft: 16, fontSize: 12, fontFamily: 'monospace', color: '#71717A', whiteSpace: 'nowrap', borderLeft: isLive ? `3px solid ${accentColor}` : '3px solid transparent' }}>
+                        {new Date(tx.createdAt || tx.timestamp || Date.now()).toLocaleTimeString()}
+                        {isLive && <span style={{ marginLeft: 6, background: '#10B981', color: 'white', borderRadius: 4, padding: '1px 5px', fontSize: 9, fontWeight: 700, verticalAlign: 'middle' }}>LIVE</span>}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: 13, fontWeight: 600, color: '#18181B', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.merchant}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 11, fontFamily: 'monospace', color: '#71717A' }}>{tx.agentId?.split('-').slice(1, 3).join('-')}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 13, fontFamily: 'monospace', fontWeight: 700, color: '#18181B' }}>${tx.amount.toFixed(2)}</td>
+                      <td style={{ padding: '10px 12px' }}><StatusBadge status={tx.status} /></td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div style={{ width: 48, height: 6, background: '#F4F4F5', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${Math.min(tx.riskScore ?? 10, 100)}%`, background: (tx.riskScore ?? 10) > 70 ? '#E11D48' : (tx.riskScore ?? 10) > 40 ? '#D97706' : '#10B981', borderRadius: 3 }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#71717A' }}>{tx.riskScore ?? '—'}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <button onClick={e => { e.stopPropagation(); setSelectedTx(tx); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, background: '#F4F4F5', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#52525B' }}>
+                          Inspect <ArrowRight size={11} />
+                        </button>
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </AnimatePresence>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={{ padding: '12px 20px', borderTop: '1px solid #F4F4F5', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, color: '#71717A' }}>Page {page} of {totalPages} · {filteredTxs.length} results</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E4E4E7', background: 'white', fontSize: 12, fontWeight: 600, cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? .4 : 1 }}>
+                ← Prev
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let p = page - 2 + i;
+                if (p < 1) p = i + 1;
+                if (p > totalPages) p = totalPages - (4 - i);
+                p = Math.max(1, Math.min(totalPages, p));
+                return (
+                  <button key={p} onClick={() => setPage(p)}
+                    style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E4E4E7', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: page === p ? '#4F46E5' : 'white', color: page === p ? 'white' : '#52525B' }}>
+                    {p}
+                  </button>
+                );
+              })}
+              <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E4E4E7', background: 'white', fontSize: 12, fontWeight: 600, cursor: page === totalPages ? 'not-allowed' : 'pointer', opacity: page === totalPages ? .4 : 1 }}>
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Compliance Report */}
+      <ComplianceReport />
+
+      {/* Transaction Detail Drawer */}
+      <TransactionDrawer transaction={selectedTx} onClose={() => setSelectedTx(null)} />
     </div>
-    {error && <p className="text-sm" style={{ color: '#E11D48' }}>{error}</p>}
-    {report && <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4 }} className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">{[['Processed', report.summary.total, '#9F1239'], ['Approved', report.summary.approved, '#059669'], ['Blocked', report.summary.blocked, '#E11D48'], ['Flagged', report.summary.flagged, '#D97706']].map(([label, value, color]) => <div key={String(label)} className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,.8)', border: `1px solid ${color}30`, boxShadow: `0 10px 20px -18px ${color}99` }}><div className="font-mono text-3xl font-bold" style={{ color: String(color) }}><AnimatedNumber value={Number(value)} /></div><div className="mt-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: '#71717A' }}>{label}</div></div>)}</div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5"><div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,.78)', border: '1px solid #FECDD3' }}><h3 className="font-bold mb-5" style={{ fontFamily: 'Outfit, sans-serif' }}>Block-reason breakdown</h3>{report.blockReasons.length ? <div className="space-y-4">{report.blockReasons.map(item => <div key={item.reason} title={`${item.reason}: ${item.count}`}><div className="flex justify-between gap-4 text-xs mb-1.5"><span className="truncate" style={{ color: '#52525B' }}>{item.reason}</span><span className="font-mono font-bold" style={{ color: '#E11D48' }}>{item.count}</span></div><div className="h-2.5 rounded-full overflow-hidden" style={{ background: '#FFE4E6' }}><motion.div initial={{ width: 0 }} animate={{ width: `${(item.count / maxReason) * 100}%` }} transition={{ duration: .75, ease: 'easeOut' }} className="h-full rounded-full" style={{ background: 'linear-gradient(90deg,#F43F5E,#F472B6)' }} /></div></div>)}</div> : <p className="text-sm" style={{ color: '#71717A' }}>No blocked payments in this range.</p>}</div><div className="rounded-2xl p-5" style={{ background: 'rgba(255,255,255,.78)', border: '1px solid #FED7AA' }}><h3 className="font-bold mb-5" style={{ fontFamily: 'Outfit, sans-serif' }}>Policy changes in range</h3>{report.policyChanges.length ? <div className="space-y-4">{report.policyChanges.map((item, index) => <div className="flex gap-3" key={item.id}><div className="flex flex-col items-center"><span className="w-3 h-3 rounded-full" style={{ background: item.action === 'DEMO_RESET' ? '#F59E0B' : '#7C3AED' }} />{index < report.policyChanges.length - 1 && <span className="w-px flex-1 mt-1" style={{ background: '#FED7AA' }} />}</div><div className="pb-2"><p className="text-sm" style={{ color: '#27272A' }}>{item.detail}</p><p className="text-xs font-mono mt-1" style={{ color: '#A1A1AA' }}>{new Date(item.createdAt).toLocaleString()}</p></div></div>)}</div> : <p className="text-sm" style={{ color: '#71717A' }}>No policy changes recorded in this range.</p>}</div></div>
-    </motion.div>}
-  </section>;
-}
-
-function DepthOrb() {
-  return <motion.div className="absolute right-7 bottom-3 pointer-events-none" animate={{ rotateY: [0, 360], rotateX: [8, -8, 8], y: [0, -8, 0] }} transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }} style={{ width: 112, height: 112, borderRadius: '32px', background: 'linear-gradient(135deg,rgba(255,255,255,.34),rgba(56,189,248,.12))', border: '1px solid rgba(255,255,255,.35)', boxShadow: 'inset 12px 12px 20px rgba(255,255,255,.16), 16px 18px 35px rgba(20,10,90,.28)', transformStyle: 'preserve-3d' }}>
-    <motion.div animate={{ rotate: 360 }} transition={{ duration: 18, repeat: Infinity, ease: 'linear' }} className="absolute inset-5 rounded-full" style={{ border: '2px dashed rgba(255,255,255,.72)' }} />
-    <ShieldCheck size={37} className="absolute left-[37px] top-[37px]" />
-  </motion.div>;
-}
-
-function InsightPanel({ insights }: { insights: InsightInfo | null }) {
-  const change = insights?.spendChangePct;
-  const hour = insights?.busiestHour === null || insights?.busiestHour === undefined ? '—' : `${String(insights.busiestHour).padStart(2, '0')}:00`;
-  return <div className="rounded-2xl p-5" style={{ background: 'linear-gradient(135deg,#ECFDF5,#EFF6FF)', border: '1px solid #A7F3D0', boxShadow: '0 10px 24px -18px rgba(5,150,105,.6)' }}>
-    <div className="flex items-center gap-2 mb-4" style={{ color: '#047857' }}><TrendingUp size={17} /><span className="font-bold">Live spend intelligence</span></div>
-    <div className="grid grid-cols-2 gap-3"><div><div className="text-xs" style={{ color: '#64748B' }}>7d vs previous</div><div className="font-mono font-bold text-xl" style={{ color: change !== null && change !== undefined && change > 0 ? '#D97706' : '#059669' }}>{change === null || change === undefined ? '—' : `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`}</div></div><div><div className="text-xs" style={{ color: '#64748B' }}>Busiest hour</div><div className="font-mono font-bold text-xl" style={{ color: '#2563EB' }}>{hour}</div></div></div>
-  </div>;
+  );
 }
