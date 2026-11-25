@@ -866,6 +866,12 @@ app.get('/health', async (_req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (err: any) {
+    const rawMsg = err?.message || String(err);
+    const maskedMsg = rawMsg
+      .replace(/postgresql:\/\/[^@]+@/g, 'postgresql://[MASKED_CREDENTIALS]@')
+      .replace(/:([a-zA-Z0-9_\-\.]+)@/g, ':[MASKED_PASSWORD]@')
+      .replace(/password=([^&\s]+)/gi, 'password=[MASKED]');
+    console.error(`[Health Check Database Error]: ${maskedMsg}`);
     return res.status(503).json({
       status: 'error',
       database: 'disconnected',
