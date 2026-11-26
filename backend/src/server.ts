@@ -309,6 +309,10 @@ app.get('/api/review-queue', async (_req, res) => {
   return res.json(enriched);
 });
 
+// Stage 5: In-memory store for Multi-Signature Approval tracking on large payments (> $300)
+// key: txId -> Set of approvers (e.g. ['Compliance Lead', 'Finance Director'])
+const multiSigApprovals = new Map<string, { approvers: string[]; required: number; pendingAction: string }>();
+
 app.post('/api/transactions/:id/review', async (req, res) => {
   const { id } = req.params;
   const { action, reviewer, note } = req.body;
@@ -322,6 +326,50 @@ app.post('/api/transactions/:id/review', async (req, res) => {
     return res.status(404).json({ error: 'Transaction not found' });
   }
 
+  const currentReviewer = (reviewer && String(reviewer).trim()) || 'Security Operator';
+  const LARGE_PAYMENT_THRESHOLD = 300;
+
+  // Two-Approver Rule for Large Payments:
+  // If amount > $300 and approving, requires 2 distinct sign-offs before settlement
+  if (action === 'APPROVE' && tx.amount >= LARGE_PAYMENT_THRESHOLD) {
+    let approvalState = multiSigApprovals.get(id);
+    if (!approvalState) {
+      approvalState = { approvers: [], required: 2, pendingAction: 'APPROVE' };
+      multiSigApprovals.set(id, approvalState);
+    }
+
+    if (!approvalState.approvers.includes(currentReviewer)) {
+      approvalState.approvers.push(currentReviewer);
+    }
+
+    if (approvalState.approvers.length < approvalState.required) {
+      // First sign-off recorded, waiting for second approver
+      const partialTx = {
+        ...tx,
+        approvalStage: 'AWAITING_SECOND_APPROVER',
+        approvers: approvalState.approvers,
+        requiredApprovers: approvalState.required,
+        reason: `Pending 2nd Approver (1 of 2 signed by ${currentReviewer})`
+      };
+
+      io.emit('transaction_multisig_update', partialTx);
+      return res.json({
+        success: true,
+        multisig: true,
+        status: 'PENDING_SECOND_APPROVAL',
+        approvers: approvalState.approvers,
+        required: approvalState.required,
+        message: `First signature accepted from ${currentReviewer}. A second distinct approver is required for payments >= $${LARGE_PAYMENT_THRESHOLD}.`,
+        transaction: partialTx
+      });
+    }
+
+    // Both approvers satisfied! Proceed to settlement
+    multiSigApprovals.delete(id);
+  } else if (action === 'REJECT') {
+    multiSigApprovals.delete(id);
+  }
+
   let updatedStatus: 'APPROVED' | 'BLOCKED';
   let updatedReason: string;
   let settlementId = tx.settlementId;
@@ -329,7 +377,8 @@ app.post('/api/transactions/:id/review', async (req, res) => {
   if (action === 'APPROVE') {
     updatedStatus = 'APPROVED';
     settlementId = `SXP-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    updatedReason = note ? `Manual Review Approved: ${note}` : `Manually approved by operator — settled as ${settlementId}`;
+    const signOffDetail = tx.amount >= LARGE_PAYMENT_THRESHOLD ? ' (Dual-Approved by 2 reviewers)' : '';
+    updatedReason = note ? `Manual Review Approved: ${note}${signOffDetail}` : `Manually approved${signOffDetail} — settled as ${settlementId}`;
   } else {
     updatedStatus = 'BLOCKED';
     updatedReason = note ? `Manual Review Rejected: ${note}` : `Rejected in review queue: High risk payment declined`;
@@ -347,7 +396,7 @@ app.post('/api/transactions/:id/review', async (req, res) => {
   await prisma.policyHistory.create({
     data: {
       action: action === 'APPROVE' ? 'TRANSACTION_APPROVED' : 'TRANSACTION_REJECTED',
-      detail: `Tx ${id.slice(0, 8)} ($${tx.amount.toFixed(2)} to ${tx.merchant}) ${action === 'APPROVE' ? 'manually approved' : 'rejected'}${reviewer ? ` by ${reviewer}` : ''}`
+      detail: `Tx ${id.slice(0, 8)} ($${tx.amount.toFixed(2)} to ${tx.merchant}) ${action === 'APPROVE' ? 'manually approved' : 'rejected'}${currentReviewer ? ` by ${currentReviewer}` : ''}`
     }
   });
 

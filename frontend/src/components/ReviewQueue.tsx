@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
-import { apiUrl } from '../lib/api';
+import { ShieldAlert, CheckCircle2, XCircle, Users } from 'lucide-react';
+import { apiUrl, socket } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { colors, shadows, radii } from '../theme';
 
@@ -26,7 +26,25 @@ interface ReviewQueueProps {
 
 export default function ReviewQueue({ transactions, onInspect, onActionComplete }: ReviewQueueProps) {
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [multiSigState, setMultiSigState] = useState<Record<string, { approvers: string[]; required: number }>>({});
+  const [reviewerName, setReviewerName] = useState('Compliance Officer');
   const toast = useToast();
+
+  useEffect(() => {
+    const handleMultiSig = (data: any) => {
+      if (data?.id && data?.approvers) {
+        setMultiSigState(prev => ({
+          ...prev,
+          [data.id]: { approvers: data.approvers, required: data.requiredApprovers || 2 }
+        }));
+      }
+    };
+
+    socket.on('transaction_multisig_update', handleMultiSig);
+    return () => {
+      socket.off('transaction_multisig_update', handleMultiSig);
+    };
+  }, []);
 
   const pendingTxs = transactions.filter(t => t.status === 'FLAGGED');
 
@@ -39,19 +57,27 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          reviewer: 'Security Lead',
-          note: action === 'APPROVE' ? 'Approved after manual threat verification' : 'Blocked: anomaly signature confirmed'
+          reviewer: reviewerName,
+          note: action === 'APPROVE' ? `Approved by ${reviewerName}` : 'Blocked: anomaly signature confirmed'
         })
       });
+      const data = await res.json();
       if (res.ok) {
-        if (action === 'APPROVE') {
-          toast.success('Transaction Approved', `Tx ${id.slice(0, 8)} manually approved & dispatched for settlement.`);
+        if (data.status === 'PENDING_SECOND_APPROVAL') {
+          toast.warning('1st Approval Recorded', data.message);
+          setMultiSigState(prev => ({
+            ...prev,
+            [id]: { approvers: data.approvers, required: data.required }
+          }));
+        } else if (action === 'APPROVE') {
+          toast.success('Transaction Settled', `Tx ${id.slice(0, 8)} approved & dispatched to settlement protocol.`);
+          onActionComplete?.();
         } else {
-          toast.warning('Transaction Rejected', `Tx ${id.slice(0, 8)} declined by security reviewer.`);
+          toast.warning('Transaction Rejected', `Tx ${id.slice(0, 8)} declined.`);
+          onActionComplete?.();
         }
-        onActionComplete?.();
       } else {
-        toast.error('Review Action Failed', `Server returned status ${res.status}`);
+        toast.error('Review Action Failed', data?.error || `Server returned ${res.status}`);
       }
     } catch (err: any) {
       toast.error('Review Action Error', err?.message || 'Network error');
@@ -101,9 +127,24 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
           </div>
         </div>
 
-        <span className="text-xs font-mono text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-          Threshold: Risk Score ≥ 80
-        </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <Users size={14} className="text-gray-400" />
+            <span>Role:</span>
+            <select
+              value={reviewerName}
+              onChange={e => setReviewerName(e.target.value)}
+              className="text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-1 outline-none"
+            >
+              <option value="Compliance Officer">Compliance Officer</option>
+              <option value="Finance Director">Finance Director</option>
+              <option value="Security Lead">Security Lead</option>
+            </select>
+          </div>
+          <span className="text-xs font-mono text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+            Threshold: Risk Score ≥ 80 | Dual-Sign &gt; $300
+          </span>
+        </div>
       </div>
 
       {/* List */}
@@ -152,10 +193,19 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
                     {/* Right Amount & Actions */}
                     <div className="flex items-center gap-4 ml-auto">
                       <div className="text-right">
-                        <div className="text-xs text-gray-400">Requested</div>
+                        <div className="text-xs text-gray-400">
+                          {tx.amount >= 300 ? (
+                            <span className="text-amber-600 font-bold">2-Signer Required</span>
+                          ) : 'Requested'}
+                        </div>
                         <div className="text-base font-extrabold font-mono text-gray-900">
                           ${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
+                        {multiSigState[tx.id] && (
+                          <div className="text-[10px] font-mono font-bold text-amber-600">
+                            Signed ({multiSigState[tx.id].approvers.length}/2): {multiSigState[tx.id].approvers.join(', ')}
+                          </div>
+                        )}
                       </div>
 
                       {/* Action Buttons */}
@@ -167,7 +217,7 @@ export default function ReviewQueue({ transactions, onInspect, onActionComplete 
                           title="Authorize payment and proceed to x402 settlement"
                         >
                           <CheckCircle2 size={13} />
-                          Approve
+                          {tx.amount >= 300 && multiSigState[tx.id]?.approvers?.length === 1 ? 'Final Sign-Off' : 'Approve'}
                         </button>
 
                         <button
