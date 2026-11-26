@@ -14,6 +14,7 @@ const Agents = lazy(() => import('./pages/Agents'));
 const Integrate = lazy(() => import('./pages/Integrate'));
 const AgentDetail = lazy(() => import('./pages/AgentDetail'));
 const MerchantInsights = lazy(() => import('./pages/MerchantInsights'));
+const AlertSettings = lazy(() => import('./pages/AlertSettings'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 function PageFallback() {
@@ -85,6 +86,7 @@ function AnimatedRoutes() {
             <Route path="/agents" element={<Agents />} />
             <Route path="/agents/:id" element={<AgentDetail />} />
             <Route path="/merchants" element={<MerchantInsights />} />
+            <Route path="/alerts" element={<AlertSettings />} />
             <Route path="/integrate" element={<Integrate />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

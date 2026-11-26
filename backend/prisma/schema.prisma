@@ -53,3 +53,29 @@ model Agent {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model WebhookConfig {
+  id          String   @id @default(uuid())
+  url         String
+  secret      String
+  enabled     Boolean  @default(true)
+  events      String[] @default(["ANOMALY_SPEND_DOUBLING", "TRANSACTION_BLOCKED", "RISK_SPIKE"])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WebhookDeliveryLog {
+  id          String   @id @default(uuid())
+  webhookId   String?
+  event       String
+  url         String
+  payload     Json
+  signature   String
+  statusCode  Int?
+  response    String?
+  success     Boolean
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([event])
+}

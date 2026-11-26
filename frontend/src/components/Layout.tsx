@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw, Store } from 'lucide-react';
+import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw, Store, BellRing } from 'lucide-react';
 import { useSocketStatus } from '../lib/api';
 import { colors, shadows, radii, spacing } from '../theme';
 
@@ -14,6 +14,7 @@ export default function Layout({ children, onOpenPalette }: { children: React.Re
     { to: '/policies',  label: 'Policies',  icon: Shield },
     { to: '/agents',    label: 'Agents',    icon: Bot },
     { to: '/merchants', label: 'Merchants', icon: Store },
+    { to: '/alerts',    label: 'Alerts',    icon: BellRing },
     { to: '/integrate', label: 'Integrate', icon: Code },
   ];
 
