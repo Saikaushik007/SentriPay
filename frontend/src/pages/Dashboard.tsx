@@ -12,6 +12,7 @@ import ReviewQueue from '../components/ReviewQueue';
 import MoneyFlowMap from '../components/MoneyFlowMap';
 import RiskHeatmapAndForecast from '../components/RiskHeatmapAndForecast';
 import ThemeAndLayoutBar from '../components/ThemeAndLayoutBar';
+import TimeTravelReplay from '../components/TimeTravelReplay';
 import { apiUrl, socket } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -593,6 +594,10 @@ export default function Dashboard() {
     localStorage.removeItem('sentripay_widget_order');
   };
 
+  // Stage 7: Time-Travel Replay State
+  const [replayTransactions, setReplayTransactions] = useState<Transaction[] | null>(null);
+  const activeTransactions = replayTransactions || transactions;
+
   // Phase I state
   const [timeRange, setTimeRange] = useState('24h');
   const [globalSearch, setGlobalSearch] = useState('');
@@ -789,6 +794,12 @@ export default function Dashboard() {
         onResetLayout={handleResetLayout}
       />
 
+      {/* Stage 7: Time-Travel Replay Slider */}
+      <TimeTravelReplay
+        transactions={transactions}
+        onReplaySliceChange={setReplayTransactions}
+      />
+
       {/* ── BENTO GRID: Main layout ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24, marginBottom: 32 }}>
 
@@ -936,7 +947,7 @@ export default function Dashboard() {
       </div>
 
       {/* Review Queue */}
-      <ReviewQueue transactions={transactions} onInspect={setSelectedTx} onActionComplete={fetchAll} />
+      <ReviewQueue transactions={activeTransactions} onInspect={setSelectedTx} onActionComplete={fetchAll} />
 
       {/* ── Live Feed: Sortable, Paginated, Filtered ── */}
       <div style={{ background: 'white', borderRadius: 24, border: '1px solid #E4E4E7', boxShadow: '0 8px 32px -12px rgba(0,0,0,0.06)', overflow: 'hidden', marginTop: 24 }}>
