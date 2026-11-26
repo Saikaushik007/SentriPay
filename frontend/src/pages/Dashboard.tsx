@@ -13,6 +13,7 @@ import MoneyFlowMap from '../components/MoneyFlowMap';
 import RiskHeatmapAndForecast from '../components/RiskHeatmapAndForecast';
 import ThemeAndLayoutBar from '../components/ThemeAndLayoutBar';
 import TimeTravelReplay from '../components/TimeTravelReplay';
+import ConfettiCelebration from '../components/ConfettiCelebration';
 import { apiUrl, socket } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -568,6 +569,7 @@ export default function Dashboard() {
   const [insights, setInsights] = useState<InsightInfo | null>(null);
   const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState(false);
+  const [confetti, setConfetti] = useState(false);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [dismissedAnomalies, setDismissedAnomalies] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -653,6 +655,10 @@ export default function Dashboard() {
     const onNewTx = (tx: Transaction) => {
       setTransactions(prev => [tx, ...prev].slice(0, 150));
       setLiveIds(prev => new Set([...prev, tx.id]));
+      if (tx.status === 'APPROVED') {
+        setConfetti(true);
+        setTimeout(() => setConfetti(false), 2000);
+      }
       fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData).catch(console.error);
       fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget).catch(console.error);
       refreshAnomalies();
@@ -740,6 +746,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1440, margin: '0 auto', width: '100%' }}>
+      <ConfettiCelebration trigger={confetti} />
       {/* Activity Ticker */}
       <ActivityTicker transactions={transactions} />
       <AnomalyBanner alerts={anomalies.filter(a => !dismissedAnomalies.has(a.id))} onDismiss={id => setDismissedAnomalies(prev => new Set([...prev, id]))} />

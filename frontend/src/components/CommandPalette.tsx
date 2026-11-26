@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ChevronRight, LayoutDashboard, Shield, Users, Code2, Store, Zap } from 'lucide-react';
+import { Search, ChevronRight, LayoutDashboard, Shield, Users, Code2, Store, Zap, BellRing } from 'lucide-react';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={16} />, desc: 'Live transaction feed & metrics' },
   { label: 'Policies', path: '/policies', icon: <Shield size={16} />, desc: 'Configure spend limits & rules' },
   { label: 'Agents', path: '/agents', icon: <Users size={16} />, desc: 'Manage autonomous AI agents' },
   { label: 'Merchant Insights', path: '/merchants', icon: <Store size={16} />, desc: 'Volume, blocks & risk per merchant' },
+  { label: 'Alerts & Webhooks', path: '/alerts', icon: <BellRing size={16} />, desc: 'Signed webhooks & anomaly detection' },
   { label: 'Integrate', path: '/integrate', icon: <Code2 size={16} />, desc: 'API docs & SDK integration' },
 ];
 
