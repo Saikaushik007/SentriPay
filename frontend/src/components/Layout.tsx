@@ -3,11 +3,13 @@ import { NavLink, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Layers, LayoutDashboard, Shield, Bot, Code, Menu, X, RefreshCw, Store, BellRing } from 'lucide-react';
 import { useSocketStatus } from '../lib/api';
+import { useAppTheme } from '../context/ThemeContext';
 import { colors, shadows, radii, spacing } from '../theme';
 
 export default function Layout({ children, onOpenPalette }: { children: React.ReactNode; onOpenPalette?: () => void }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const socketStatus = useSocketStatus();
+  const { currentTheme } = useAppTheme();
 
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,7 +24,7 @@ export default function Layout({ children, onOpenPalette }: { children: React.Re
     <div
       className="min-h-screen text-textMain flex flex-col font-sans relative overflow-x-hidden"
       style={{
-        background: colors.pageGradient,
+        background: currentTheme.pageGradient,
       }}
     >
       {/* ── Slowly Drifting Blurred Color Blobs (Lavender, Sky, Mint, Peach) ── */}

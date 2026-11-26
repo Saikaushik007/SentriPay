@@ -11,6 +11,7 @@ import DemoControlsPanel from '../components/DemoControlsPanel';
 import ReviewQueue from '../components/ReviewQueue';
 import MoneyFlowMap from '../components/MoneyFlowMap';
 import RiskHeatmapAndForecast from '../components/RiskHeatmapAndForecast';
+import ThemeAndLayoutBar from '../components/ThemeAndLayoutBar';
 import { apiUrl, socket } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -571,6 +572,27 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Stage 6: Personal Dashboard Layout state (persisted to localStorage)
+  const DEFAULT_LAYOUT = ['flowMap', 'heatmap', 'volumeChart'];
+  const [widgetOrder, setWidgetOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sentripay_widget_order');
+      return saved ? JSON.parse(saved) : DEFAULT_LAYOUT;
+    } catch {
+      return DEFAULT_LAYOUT;
+    }
+  });
+
+  const handleReorder = (newOrder: string[]) => {
+    setWidgetOrder(newOrder);
+    localStorage.setItem('sentripay_widget_order', JSON.stringify(newOrder));
+  };
+
+  const handleResetLayout = () => {
+    setWidgetOrder(DEFAULT_LAYOUT);
+    localStorage.removeItem('sentripay_widget_order');
+  };
+
   // Phase I state
   const [timeRange, setTimeRange] = useState('24h');
   const [globalSearch, setGlobalSearch] = useState('');
@@ -760,6 +782,13 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Stage 6: Theme Picker & Personal Dashboard Reorder Bar */}
+      <ThemeAndLayoutBar
+        widgetOrder={widgetOrder}
+        onReorder={handleReorder}
+        onResetLayout={handleResetLayout}
+      />
+
       {/* ── BENTO GRID: Main layout ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24, marginBottom: 32 }}>
 
@@ -783,44 +812,59 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Money-Flow Map */}
-          <MoneyFlowMap onSelectTx={(id) => {
-            const found = transactions.find(t => t.id === id);
-            if (found) setSelectedTx(found);
-          }} />
-
-          {/* Real Merchant Risk Heatmap & Agent Spend Forecast */}
-          <RiskHeatmapAndForecast />
-
-          {/* Traffic Volume Chart */}
-          <div style={{ borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#F0F9FF,#FFFFFF)', border: '1px solid #BAE6FD', boxShadow: '0 8px 24px -14px rgba(14,165,233,0.28)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, background: '#F0F9FF', color: '#0EA5E9', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px -2px rgba(14,165,233,0.3)' }}><Activity size={16} /></div>
-                <h3 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 16, margin: 0 }}>Transaction Volume</h3>
-              </div>
-              <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#71717A' }}>Last {chartData.length} transactions</span>
-            </div>
-            {chartData.length === 0 ? <EmptyChart /> : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={chartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="cA" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#34D399" /><stop offset="100%" stopColor="#10B981" /></linearGradient>
-                    <linearGradient id="cF" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FCD34D" /><stop offset="100%" stopColor="#F59E0B" /></linearGradient>
-                    <linearGradient id="cB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FB7185" /><stop offset="100%" stopColor="#F43F5E" /></linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E4E7" />
-                  <XAxis dataKey="time" tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E4E4E7', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }} formatter={(val: any) => [`$${Number(val).toFixed(2)}`, undefined]} />
-                  <Legend wrapperStyle={{ fontSize: 12, fontFamily: 'Inter, sans-serif', paddingTop: 10 }} />
-                  <Bar dataKey="approved" stackId="a" fill="url(#cA)" name="Approved" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="flagged" stackId="a" fill="url(#cF)" name="Flagged" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="blocked" stackId="a" fill="url(#cB)" name="Blocked" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+          {/* Ordered Dynamic Dashboard Widgets */}
+          {widgetOrder.map(wid => {
+            if (wid === 'flowMap') {
+              return (
+                <div key="flowMap">
+                  <MoneyFlowMap onSelectTx={(id) => {
+                    const found = transactions.find(t => t.id === id);
+                    if (found) setSelectedTx(found);
+                  }} />
+                </div>
+              );
+            }
+            if (wid === 'heatmap') {
+              return (
+                <div key="heatmap">
+                  <RiskHeatmapAndForecast />
+                </div>
+              );
+            }
+            if (wid === 'volumeChart') {
+              return (
+                <div key="volumeChart" style={{ borderRadius: 20, padding: 24, background: 'linear-gradient(135deg,#F0F9FF,#FFFFFF)', border: '1px solid #BAE6FD', boxShadow: '0 8px 24px -14px rgba(14,165,233,0.28)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 10, background: '#F0F9FF', color: '#0EA5E9', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px -2px rgba(14,165,233,0.3)' }}><Activity size={16} /></div>
+                      <h3 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 16, margin: 0 }}>Transaction Volume</h3>
+                    </div>
+                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#71717A' }}>Last {chartData.length} transactions</span>
+                  </div>
+                  {chartData.length === 0 ? <EmptyChart /> : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={chartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="cA" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#34D399" /><stop offset="100%" stopColor="#10B981" /></linearGradient>
+                          <linearGradient id="cF" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FCD34D" /><stop offset="100%" stopColor="#F59E0B" /></linearGradient>
+                          <linearGradient id="cB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FB7185" /><stop offset="100%" stopColor="#F43F5E" /></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E4E7" />
+                        <XAxis dataKey="time" tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', fill: '#71717A' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                        <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E4E4E7', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }} formatter={(val: any) => [`$${Number(val).toFixed(2)}`, undefined]} />
+                        <Legend wrapperStyle={{ fontSize: 12, fontFamily: 'Inter, sans-serif', paddingTop: 10 }} />
+                        <Bar dataKey="approved" stackId="a" fill="url(#cA)" name="Approved" radius={[2, 2, 0, 0]} />
+                        <Bar dataKey="flagged" stackId="a" fill="url(#cF)" name="Flagged" radius={[2, 2, 0, 0]} />
+                        <Bar dataKey="blocked" stackId="a" fill="url(#cB)" name="Blocked" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })}
 
           {/* Demo Controls */}
           <DemoControlsPanel onDataChanged={() => { fetchAll(); fetchRangeData(timeRange); }} />

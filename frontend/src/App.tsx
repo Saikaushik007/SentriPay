@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Layout from './components/Layout';
 import { ToastProvider } from './context/ToastContext';
+import { ThemeProvider } from './context/ThemeContext';
 import CommandPalette from './components/CommandPalette';
 import { apiUrl } from './lib/api';
 
@@ -30,11 +31,13 @@ function PageFallback() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <BrowserRouter>
-        <AppInner />
-      </BrowserRouter>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <BrowserRouter>
+          <AppInner />
+        </BrowserRouter>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }
 
