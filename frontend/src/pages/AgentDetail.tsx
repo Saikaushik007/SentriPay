@@ -110,7 +110,7 @@ export default function AgentDetail() {
   const spendChart = Array.from({ length: 24 }, (_, i) => ({ hour: `${String(i).padStart(2,'0')}h`, spend: Math.round((hourMap[i] || 0) * 100) / 100 }));
 
   return (
-    <div style={{ padding: '16px', maxWidth: 1200, margin: '0 auto', width: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
+    <div style={{ padding: '16px', maxWidth: 1200, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
       {/* Back */}
       <button onClick={() => navigate('/agents')} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 24, background: 'none', border: 'none', cursor: 'pointer', color: '#71717A', fontSize: 14, fontWeight: 600 }}>
         <ArrowLeft size={16} /> Back to Agents

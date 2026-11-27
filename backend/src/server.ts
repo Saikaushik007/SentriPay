@@ -838,7 +838,7 @@ app.post('/api/alerts/settings/webhook', async (req, res) => {
   const newHook: WebhookSetting = {
     id: `wh_${Date.now()}`,
     url: url.trim(),
-    secret: (secret && String(secret).trim()) || `whsec_${crypto.randomBytes(16).toString('hex')}`,
+    secret: (secret && String(secret).trim()) || `sp_wh_${crypto.randomBytes(16).toString('hex')}`,
     enabled: true,
     events: Array.isArray(events) && events.length > 0 ? events : ['ANOMALY_SPEND_DOUBLED', 'TRANSACTION_BLOCKED'],
     createdAt: new Date().toISOString()
@@ -1007,9 +1007,9 @@ app.get('/api/agents', async (req, res, next) => {
     // If no agents yet, auto-bootstrap default agents in DB
     if (dbAgents.length === 0) {
       const defaultAgents = [
-        { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500, apiKey: 'sk_live_alpha_001_c8f92a' },
-        { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000, apiKey: 'sk_live_beta_002_d3a17e' },
-        { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500, apiKey: 'sk_live_gamma_003_e5b49f' }
+        { id: 'agent-alpha-001', name: 'Alpha Infrastructure', description: 'Autonomous cloud infra provisioning & container orchestration', status: 'ACTIVE', dailyBudget: 1500, apiKey: `sp_key_${crypto.randomBytes(12).toString('hex')}` },
+        { id: 'agent-beta-002', name: 'Beta Compute Optimizer', description: 'Real-time AI compute clusters & inference batch dispatch', status: 'ACTIVE', dailyBudget: 1000, apiKey: `sp_key_${crypto.randomBytes(12).toString('hex')}` },
+        { id: 'agent-gamma-003', name: 'Gamma Data Pipeline', description: 'Data ingestion, ETL routing & external analytics subscriptions', status: 'ACTIVE', dailyBudget: 500, apiKey: `sp_key_${crypto.randomBytes(12).toString('hex')}` }
       ];
       await prisma.agent.createMany({ data: defaultAgents });
       dbAgents = await prisma.agent.findMany({ orderBy: { createdAt: 'asc' } });
