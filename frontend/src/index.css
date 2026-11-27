@@ -2,403 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   SENTRIPAY DESIGN SYSTEM — global base styles
-   Tokens live in tailwind.config.js — never hardcode colors here.
-───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --canvas: #F6F7FB;
+  --surface: #FFFFFF;
+  --border: #E5E7EB;
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+  --text-disabled: #9CA3AF;
+  --brand: #4F46E5;
+  --brand-hover: #4338CA;
+  --brand-soft: #EEF2FF;
+  --status-approved: #059669;
+  --status-approved-bg: #ECFDF5;
+  --status-blocked: #DC2626;
+  --status-blocked-bg: #FEF2F2;
+  --status-flagged: #D97706;
+  --status-flagged-bg: #FFFBEB;
+  --radius-card: 12px;
+  --radius-control: 8px;
+}
 
 @layer base {
   html {
     scroll-behavior: smooth;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
   body {
-    /* Uses tokens from tailwind.config.js */
-    @apply bg-background text-textMain antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-color: var(--canvas);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 20px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background: linear-gradient(135deg, #F5F3FF 0%, #F0F9FF 48%, #F0FDF4 100%);
   }
 
-  /* Default border color to our design token */
   * {
-    @apply border-border;
+    border-color: var(--border);
   }
 
-  /* Headlines → Outfit Bold */
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    font-family: 'Outfit', system-ui, sans-serif;
-    font-weight: 700;
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-weight: 600;
+    color: var(--text-primary);
   }
 }
 
-/* ─── Components ───────────────────────────────────────────────────────────── */
-
-@layer components {
-
-  /* Cards */
-  .card-base {
-    @apply bg-surface border border-border rounded-2xl shadow-card transition-all duration-200;
-  }
-
-  .card-deep {
-    @apply bg-surface border border-border rounded-3xl shadow-card-deep;
-  }
-
-  /* Chips */
-  .chip-primary {
-    @apply bg-primaryLight text-primary shadow-glow-primary rounded-lg flex items-center justify-center;
-  }
-
-  .chip-success {
-    @apply bg-successLight text-success shadow-glow-success rounded-lg flex items-center justify-center;
-  }
-
-  .chip-danger {
-    @apply bg-dangerLight text-danger shadow-glow-danger rounded-lg flex items-center justify-center;
-  }
-
-  .chip-warning {
-    @apply bg-warningLight text-warning shadow-glow-warning rounded-lg flex items-center justify-center;
-  }
-
-  .chip-info {
-    @apply bg-infoLight text-info shadow-glow-info rounded-lg flex items-center justify-center;
-  }
-
-  .chip-violet {
-    @apply bg-violetLight text-violet shadow-glow-violet rounded-lg flex items-center justify-center;
-  }
-
-  /* Pills & Labels */
-  .status-pill {
-    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wider uppercase;
-  }
-
-  .section-label {
-    @apply text-[11px] font-semibold uppercase tracking-widest text-textMuted;
-  }
-
-  /* Values */
-  .val-badge {
-    @apply font-mono font-bold rounded-xl px-4 py-2;
-  }
-}
-
-/* ─── Utility classes ──────────────────────────────────────────────────────── */
-
-@layer utilities {
-
-  /* Tabular numbers — use for all stat/data displays */
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Mono data — shorthand for JetBrains Mono + tabular nums */
-  .data-mono {
-    font-family: 'JetBrains Mono', Menlo, monospace;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Accent tagline — Fraunces Italic (one per page only) */
-  .font-accent-italic {
-    font-family: 'Fraunces', Georgia, serif;
-    font-style: italic;
-  }
-
-  /* Card hover lift */
-  .card-lift {
-    @apply transition-all duration-150 ease-out;
-  }
-
-  .card-lift:hover {
-    @apply -translate-y-1 shadow-card-hover;
-  }
-
-  /* Mesh gradient hero fade-out at bottom */
-  .mesh-fade {
-    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 90%);
-    mask-image: linear-gradient(to bottom, black 0%, black 40%, transparent 90%);
-  }
-
-  /* Glassmorphism utility */
-  .glass {
-    background: rgba(255, 255, 255, 0.10);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-  }
-}
-
-/* ─── Custom Range Slider ───────────────────────────────────────────────────── */
-input[type="range"] {
-  -webkit-appearance: none;
-  height: 6px;
-  border-radius: 999px;
-  background: #E4E4E7;
-  outline: none;
-}
-
-/* Premium control language shared by every page. */
-button {
-  font-family: 'Inter', system-ui, sans-serif;
-  transition: transform .18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow .18s ease, filter .18s ease;
-}
-
-button:not(:disabled):hover {
-  transform: scale(1.02);
-}
-
-button:not(:disabled):active {
-  transform: scale(0.98);
-}
-
-button:focus-visible,
-input:focus-visible,
-a:focus-visible {
-  outline: 3px solid rgba(79, 70, 229, 0.35);
-  outline-offset: 2px;
-}
-
-/* Category Card Lift & Glow States */
-.card-lift {
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.card-lift:hover {
-  transform: translateY(-3px);
-}
-
-.card-lift-primary:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px -6px rgba(79, 70, 229, 0.25) !important;
-}
-
-.card-lift-success:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px -6px rgba(16, 185, 129, 0.25) !important;
-}
-
-.card-lift-danger:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px -6px rgba(244, 63, 94, 0.25) !important;
-}
-
-.card-lift-warning:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px -6px rgba(245, 158, 11, 0.25) !important;
-}
-
-.card-lift-violet:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px -6px rgba(124, 58, 237, 0.25) !important;
-}
-
-/* Table Row Tinted Hover & Left Accent Bar */
-tr.tx-row {
-  position: relative;
-  transition: background-color 0.15s ease, border-left-color 0.15s ease;
-  border-left: 3px solid transparent;
-}
-
-tr.tx-row:hover {
-  background-color: rgba(248, 250, 252, 0.95);
-  border-left: 3px solid #6366F1;
-}
-
-tr.tx-row.status-approved:hover {
-  background-color: rgba(236, 253, 245, 0.7);
-  border-left: 3px solid #10B981;
-}
-
-tr.tx-row.status-blocked:hover {
-  background-color: rgba(254, 242, 242, 0.7);
-  border-left: 3px solid #F43F5E;
-}
-
-tr.tx-row.status-flagged:hover {
-  background-color: rgba(255, 251, 235, 0.7);
-  border-left: 3px solid #F59E0B;
-}
-
-/* Shimmer Skeletons */
-@keyframes shimmerSweep {
-  0% {
-    background-position: -200% 0;
-  }
-
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.skeleton-shimmer {
-  background: linear-gradient(90deg, rgba(241, 245, 249, 0.85) 25%, rgba(226, 232, 240, 0.95) 50%, rgba(241, 245, 249, 0.85) 75%);
-  background-size: 200% 100%;
-  animation: shimmerSweep 1.6s infinite linear;
-}
-
-input:not([type="range"]) {
-  border-radius: 12px;
-  border: 1px solid #D4D4D8;
-  background: rgba(255, 255, 255, .86);
-  transition: border-color .18s ease, box-shadow .18s ease;
-}
-
-input:not([type="range"]):focus {
-  border-color: #818CF8;
-  box-shadow: 0 0 0 4px rgba(129, 140, 248, .14);
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #4F46E5;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.45);
-  border: 3px solid white;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.55);
-}
-
-/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #D4D4D8;
-  border-radius: 999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #A1A1AA;
-}
-
-/* ─── Slowly Drifting Blurred Color Blobs (Lavender, Sky, Mint, Peach) ───────── */
-@keyframes driftBlob1 {
-  0% {
-    transform: translate(0px, 0px) scale(1);
-  }
-
-  50% {
-    transform: translate(45px, 35px) scale(1.08);
-  }
-
-  100% {
-    transform: translate(-25px, 60px) scale(0.96);
-  }
-}
-
-@keyframes driftBlob2 {
-  0% {
-    transform: translate(0px, 0px) scale(1);
-  }
-
-  50% {
-    transform: translate(-50px, 40px) scale(1.10);
-  }
-
-  100% {
-    transform: translate(35px, -25px) scale(0.94);
-  }
-}
-
-@keyframes driftBlob3 {
-  0% {
-    transform: translate(0px, 0px) scale(1);
-  }
-
-  50% {
-    transform: translate(40px, -45px) scale(1.07);
-  }
-
-  100% {
-    transform: translate(-45px, 25px) scale(1.05);
-  }
-}
-
-@keyframes driftBlob4 {
-  0% {
-    transform: translate(0px, 0px) scale(1);
-  }
-
-  50% {
-    transform: translate(-35px, -30px) scale(1.06);
-  }
-
-  100% {
-    transform: translate(40px, 35px) scale(0.95);
-  }
-}
-
-.drift-blob-1 {
-  animation: driftBlob1 28s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-.drift-blob-2 {
-  animation: driftBlob2 34s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-.drift-blob-3 {
-  animation: driftBlob3 30s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-.drift-blob-4 {
-  animation: driftBlob4 32s ease-in-out infinite alternate;
-  will-change: transform;
+.font-mono-num {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {
-
-  *,
-  ::before,
-  ::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-
-  .drift-blob-1,
-  .drift-blob-2,
-  .drift-blob-3,
-  .drift-blob-4 {
-    animation: none !important;
-  }
-
-  .card-lift:hover,
-  .card-lift-primary:hover,
-  .card-lift-success:hover,
-  .card-lift-danger:hover,
-  .card-lift-warning:hover,
-  .card-lift-violet:hover {
-    transform: none !important;
-  }
-
-  button:not(:disabled):hover,
-  button:not(:disabled):active {
-    transform: none !important;
   }
 }
