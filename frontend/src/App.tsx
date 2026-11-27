@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import { ToastProvider } from './context/ToastContext';
 import { ThemeProvider } from './context/ThemeContext';
 import CommandPalette from './components/CommandPalette';
+import ErrorBoundary from './components/ErrorBoundary';
 import { apiUrl } from './lib/api';
 
 // Lazy-loaded routes
@@ -83,14 +84,14 @@ function AnimatedRoutes() {
       >
         <Suspense fallback={<PageFallback />}>
           <Routes location={location}>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/policies" element={<Policies />} />
-            <Route path="/agents" element={<Agents />} />
-            <Route path="/agents/:id" element={<AgentDetail />} />
-            <Route path="/merchants" element={<MerchantInsights />} />
-            <Route path="/alerts" element={<AlertSettings />} />
-            <Route path="/integrate" element={<Integrate />} />
+            <Route path="/" element={<ErrorBoundary label="Landing"><LandingPage /></ErrorBoundary>} />
+            <Route path="/dashboard" element={<ErrorBoundary label="Dashboard"><Dashboard /></ErrorBoundary>} />
+            <Route path="/policies" element={<ErrorBoundary label="Policies"><Policies /></ErrorBoundary>} />
+            <Route path="/agents" element={<ErrorBoundary label="Agents"><Agents /></ErrorBoundary>} />
+            <Route path="/agents/:id" element={<ErrorBoundary label="Agent detail"><AgentDetail /></ErrorBoundary>} />
+            <Route path="/merchants" element={<ErrorBoundary label="Merchants"><MerchantInsights /></ErrorBoundary>} />
+            <Route path="/alerts" element={<ErrorBoundary label="Alerts"><AlertSettings /></ErrorBoundary>} />
+            <Route path="/integrate" element={<ErrorBoundary label="Integrate"><Integrate /></ErrorBoundary>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

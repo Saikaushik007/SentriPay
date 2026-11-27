@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-      ShieldCheck, ShieldAlert, Activity, DollarSign, Cpu, Banknote,
-      Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2,
-      CalendarRange, AlertTriangle, FileText, Bell, BellRing, Users,
-      BarChart2, ChevronUp, ChevronDown, ArrowRight, Zap
+  ShieldCheck, ShieldAlert, Activity, DollarSign, Cpu, Banknote,
+  Search, X, RotateCcw, CheckCircle2, Download, TrendingUp, FileCheck2,
+  CalendarRange, AlertTriangle, FileText, Bell, BellRing, Users,
+  BarChart2, ChevronUp, ChevronDown, ArrowRight, Zap
 } from 'lucide-react';
 import TransactionDrawer from '../components/TransactionDrawer';
 import DemoControlsPanel from '../components/DemoControlsPanel';
@@ -14,6 +14,7 @@ import RiskHeatmapAndForecast from '../components/RiskHeatmapAndForecast';
 import ThemeAndLayoutBar from '../components/ThemeAndLayoutBar';
 import TimeTravelReplay from '../components/TimeTravelReplay';
 import ConfettiCelebration from '../components/ConfettiCelebration';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { apiUrl, socket } from '../lib/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -178,7 +179,9 @@ function StatCard({ value, label, color, icon, sparkData, mono }: {
 
 // ── Spend Gauge ───────────────────────────────────────────────────────────────
 function SpendGauge({ spent, limit }: { spent: number; limit: number }) {
-  const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+  const safeSpent = typeof spent === 'number' && isFinite(spent) ? spent : 0;
+  const safeLimit = typeof limit === 'number' && isFinite(limit) && limit > 0 ? limit : 500;
+  const pct = Math.min((safeSpent / safeLimit) * 100, 100);
   const color = pct > 85 ? '#E11D48' : pct > 65 ? '#D97706' : '#10B981';
   const r = 48, cx = 60, cy = 60;
   const circ = 2 * Math.PI * r;
@@ -206,7 +209,7 @@ function SpendGauge({ spent, limit }: { spent: number; limit: number }) {
       </svg>
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700, color: '#18181B' }}>
-          ${spent.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span style={{ color: '#A1A1AA', fontWeight: 400 }}>/ ${limit.toLocaleString()}</span>
+          ${safeSpent.toLocaleString(undefined, { maximumFractionDigits: 0 })} <span style={{ color: '#A1A1AA', fontWeight: 400 }}>/ ${safeLimit.toLocaleString()}</span>
         </div>
         <div style={{ fontSize: 10, color: '#71717A', marginTop: 2 }}>24h spend vs budget</div>
       </div>
@@ -279,10 +282,12 @@ function RangePills({ value, onChange }: { value: string; onChange: (v: string) 
     <div style={{ display: 'flex', gap: 2, background: '#F4F4F5', borderRadius: 10, padding: 3 }}>
       {['1h', '24h', '7d'].map(r => (
         <button key={r} onClick={() => onChange(r)}
-          style={{ padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all .15s',
+          style={{
+            padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all .15s',
             background: value === r ? 'white' : 'transparent',
             color: value === r ? '#4F46E5' : '#71717A',
-            boxShadow: value === r ? '0 2px 8px rgba(0,0,0,0.08)' : 'none' }}>
+            boxShadow: value === r ? '0 2px 8px rgba(0,0,0,0.08)' : 'none'
+          }}>
           {r}
         </button>
       ))}
@@ -330,8 +335,8 @@ function SortHeader({ label, sortKey, currentKey, dir, onSort }: {
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, { bg: string; color: string; label: string }> = {
     APPROVED: { bg: '#ECFDF5', color: '#059669', label: '✓ Approved' },
-    BLOCKED:  { bg: '#FFF1F2', color: '#E11D48', label: '✕ Blocked' },
-    FLAGGED:  { bg: '#FFFBEB', color: '#D97706', label: '⚑ Flagged' },
+    BLOCKED: { bg: '#FFF1F2', color: '#E11D48', label: '✕ Blocked' },
+    FLAGGED: { bg: '#FFFBEB', color: '#D97706', label: '⚑ Flagged' },
   };
   const c = cfg[status] || { bg: '#F4F4F5', color: '#71717A', label: status };
   return (
@@ -565,7 +570,7 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
-  const [, setMerchants] = useState<MerchantStat[]>([]);  const [budget, setBudget] = useState<BudgetInfo | null>(null);
+  const [, setMerchants] = useState<MerchantStat[]>([]); const [budget, setBudget] = useState<BudgetInfo | null>(null);
   const [insights, setInsights] = useState<InsightInfo | null>(null);
   const [liveIds, setLiveIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState(false);
@@ -621,14 +626,32 @@ export default function Dashboard() {
   const fetchAll = useCallback(async () => {
     setFetchError(null);
     try {
-      await Promise.all([
-        fetch(apiUrl('/api/transactions')).then(r => r.json()).then(setTransactions),
-        fetch(apiUrl('/api/transactions/chart')).then(r => r.json()).then(setChartData),
-        fetch(apiUrl('/api/transactions/merchants')).then(r => r.json()).then(setMerchants),
-        fetch(apiUrl('/api/transactions/budget')).then(r => r.json()).then(setBudget),
-        fetch(apiUrl('/api/insights')).then(r => r.json()).then(setInsights),
-        fetch(apiUrl('/api/agents')).then(r => r.json()).then(setAgents),
+      // Use allSettled so one failing route doesn't blank the whole dashboard
+      const safeJson = async (url: string) => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        return r.json();
+      };
+      const [txRes, chartRes, merchantRes, budgetRes, insightsRes, agentsRes] = await Promise.allSettled([
+        safeJson(apiUrl('/api/transactions')),
+        safeJson(apiUrl('/api/transactions/chart')),
+        safeJson(apiUrl('/api/transactions/merchants')),
+        safeJson(apiUrl('/api/transactions/budget')),
+        safeJson(apiUrl('/api/insights')),
+        safeJson(apiUrl('/api/agents')),
       ]);
+      if (txRes.status === 'fulfilled' && Array.isArray(txRes.value)) setTransactions(txRes.value);
+      if (chartRes.status === 'fulfilled' && Array.isArray(chartRes.value)) setChartData(chartRes.value);
+      if (merchantRes.status === 'fulfilled' && Array.isArray(merchantRes.value)) setMerchants(merchantRes.value);
+      if (budgetRes.status === 'fulfilled' && budgetRes.value?.limit != null) setBudget(budgetRes.value);
+      if (insightsRes.status === 'fulfilled') setInsights(insightsRes.value);
+      if (agentsRes.status === 'fulfilled' && Array.isArray(agentsRes.value)) setAgents(agentsRes.value);
+
+      // Surface partial errors (non-critical)
+      const failed = [txRes, chartRes, merchantRes, budgetRes, insightsRes, agentsRes]
+        .filter(r => r.status === 'rejected')
+        .map(r => (r as PromiseRejectedResult).reason?.message);
+      if (failed.length === 6) setFetchError('All dashboard routes failed — check backend');
     } catch (err: any) {
       setFetchError(err?.message || 'Failed to fetch dashboard data');
     } finally { setIsLoading(false); }
@@ -835,17 +858,21 @@ export default function Dashboard() {
             if (wid === 'flowMap') {
               return (
                 <div key="flowMap">
-                  <MoneyFlowMap onSelectTx={(id) => {
-                    const found = transactions.find(t => t.id === id);
-                    if (found) setSelectedTx(found);
-                  }} />
+                  <ErrorBoundary label="Money flow map">
+                    <MoneyFlowMap onSelectTx={(id) => {
+                      const found = transactions.find(t => t.id === id);
+                      if (found) setSelectedTx(found);
+                    }} />
+                  </ErrorBoundary>
                 </div>
               );
             }
             if (wid === 'heatmap') {
               return (
                 <div key="heatmap">
-                  <RiskHeatmapAndForecast />
+                  <ErrorBoundary label="Risk heatmap">
+                    <RiskHeatmapAndForecast />
+                  </ErrorBoundary>
                 </div>
               );
             }
@@ -897,9 +924,11 @@ export default function Dashboard() {
               <div style={{ width: 28, height: 28, borderRadius: 8, background: '#FFF7ED', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Zap size={14} /></div>
               <span style={{ fontWeight: 700, fontSize: 14, fontFamily: 'Outfit, sans-serif' }}>Budget Usage</span>
             </div>
-            {budget ? <SpendGauge spent={budget.spent} limit={budget.limit} /> : (
-              <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A1A1AA', fontSize: 13 }}>Loading…</div>
-            )}
+            <ErrorBoundary label="Budget gauge">
+              {budget ? <SpendGauge spent={budget.spent} limit={budget.limit} /> : (
+                <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#A1A1AA', fontSize: 13 }}>Loading…</div>
+              )}
+            </ErrorBoundary>
           </div>
 
           {/* Agent Leaderboard */}
@@ -970,9 +999,11 @@ export default function Dashboard() {
             <div style={{ display: 'flex', gap: 2, background: '#F9FAFB', border: '1px solid #E4E4E7', borderRadius: 10, padding: 3 }}>
               {['ALL', 'APPROVED', 'BLOCKED', 'FLAGGED'].map(s => (
                 <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }}
-                  style={{ padding: '5px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all .15s',
+                  style={{
+                    padding: '5px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all .15s',
                     background: filterStatus === s ? '#4F46E5' : 'transparent',
-                    color: filterStatus === s ? 'white' : '#71717A' }}>
+                    color: filterStatus === s ? 'white' : '#71717A'
+                  }}>
                   {s}
                 </button>
               ))}
@@ -1073,18 +1104,19 @@ export default function Dashboard() {
                 style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E4E4E7', background: 'white', fontSize: 12, fontWeight: 600, cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? .4 : 1 }}>
                 ← Prev
               </button>
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let p = page - 2 + i;
-                if (p < 1) p = i + 1;
-                if (p > totalPages) p = totalPages - (4 - i);
-                p = Math.max(1, Math.min(totalPages, p));
-                return (
-                  <button key={p} onClick={() => setPage(p)}
+              {/* Stable unique page buttons — deduplicated */}
+              {(() => {
+                const windowSize = Math.min(5, totalPages);
+                let start = Math.max(1, page - Math.floor(windowSize / 2));
+                const end = Math.min(totalPages, start + windowSize - 1);
+                start = Math.max(1, end - windowSize + 1);
+                return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(p => (
+                  <button key={`page-${p}`} onClick={() => setPage(p)}
                     style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E4E4E7', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: page === p ? '#4F46E5' : 'white', color: page === p ? 'white' : '#52525B' }}>
                     {p}
                   </button>
-                );
-              })}
+                ));
+              })()}
               <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
                 style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #E4E4E7', background: 'white', fontSize: 12, fontWeight: 600, cursor: page === totalPages ? 'not-allowed' : 'pointer', opacity: page === totalPages ? .4 : 1 }}>
                 Next →
