@@ -633,9 +633,9 @@ export default function Dashboard() {
         return r.json();
       };
       const [txRes, chartRes, merchantRes, budgetRes, insightsRes, agentsRes] = await Promise.allSettled([
-        safeJson(apiUrl('/api/transactions')),
-        safeJson(apiUrl('/api/transactions/chart')),
-        safeJson(apiUrl('/api/transactions/merchants')),
+        safeJson(apiUrl(`/api/transactions?range=${timeRange}`)),
+        safeJson(apiUrl(`/api/transactions/chart?range=${timeRange}`)),
+        safeJson(apiUrl(`/api/transactions/merchants?range=${timeRange}`)),
         safeJson(apiUrl('/api/transactions/budget')),
         safeJson(apiUrl('/api/insights')),
         safeJson(apiUrl('/api/agents')),

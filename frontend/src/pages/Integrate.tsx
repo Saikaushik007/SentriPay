@@ -102,14 +102,14 @@ def send_payment_intent(agent_id: str, merchant: str, amount: float, api_key: st
             <Code size={14} /> Developer API & SDK Integration
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
-            Integrate SentriPay in 3 Minutes
+            Integrate SentriPay
           </h1>
           <p className="text-base text-gray-300 max-w-xl font-serif italic mb-4" style={{ fontFamily: 'Fraunces, Georgia, serif' }}>
             A lightweight, deterministic proxy layer between autonomous agents and x402 settlement.
           </p>
           <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-            Replace direct payment requests with SentriPay's gateway endpoint. The engine runs 
-            limits, velocity caps, allowlists, and risk scores in &lt;15ms before authorizing settlement.
+            Replace direct payment requests with SentriPay's gateway endpoint. The engine evaluates
+            limits, velocity caps, allowlists, and risk scores before authorizing settlement.
           </p>
         </div>
       </div>

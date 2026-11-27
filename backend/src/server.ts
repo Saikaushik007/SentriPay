@@ -258,11 +258,16 @@ app.get('/api/x402/resource', async (req, res) => {
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 app.get('/api/transactions', async (req, res) => {
-  const { status, merchant, minAmount, maxAmount } = req.query;
+  const { status, merchant, minAmount, maxAmount, range } = req.query;
+  const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+  const hours = range ? rangeMap[String(range)] : undefined;
+  const since = hours ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined;
+
   const transactions = await prisma.transaction.findMany({
     orderBy: { createdAt: 'desc' },
     take: 200,
     where: {
+      ...(since ? { createdAt: { gte: since } } : {}),
       ...(status ? { status: status as string } : {}),
       ...(merchant ? { merchant: { contains: merchant as string, mode: 'insensitive' } } : {}),
       ...(minAmount || maxAmount ? {
@@ -559,8 +564,13 @@ app.get('/api/analytics/spend-forecast', async (req, res) => {
 
 // ─── Time-series chart data ───────────────────────────────────────────────────
 app.get('/api/transactions/chart', async (req, res) => {
+  const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+  const hours = req.query.range ? rangeMap[String(req.query.range)] : undefined;
+  const since = hours ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined;
+
   // Get last 50 transactions ordered oldest-first for charting
   const txs = await prisma.transaction.findMany({
+    ...(since ? { where: { createdAt: { gte: since } } } : {}),
     orderBy: { createdAt: 'asc' },
     take: 50,
     select: { amount: true, status: true, createdAt: true }
@@ -579,7 +589,12 @@ app.get('/api/transactions/chart', async (req, res) => {
 
 // ─── Per-merchant breakdown ───────────────────────────────────────────────────
 app.get('/api/transactions/merchants', async (req, res) => {
+  const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+  const hours = req.query.range ? rangeMap[String(req.query.range)] : undefined;
+  const since = hours ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined;
+
   const txs = await prisma.transaction.findMany({
+    ...(since ? { where: { createdAt: { gte: since } } } : {}),
     select: { merchant: true, status: true, amount: true }
   });
 
@@ -698,16 +713,7 @@ type WebhookDelivery = {
   createdAt: string;
 };
 
-let webhookConfigs: WebhookSetting[] = [
-  {
-    id: 'wh-default-01',
-    url: 'https://security.sentripay.internal/hooks/spend-guard',
-    secret: 'whsec_99xSentriPayAutonomousGuardSecretKey',
-    enabled: true,
-    events: ['ANOMALY_SPEND_DOUBLED', 'SPIKE_FREQUENCY', 'HIGH_RISK_BREACH'],
-    createdAt: new Date().toISOString()
-  }
-];
+let webhookConfigs: WebhookSetting[] = [];
 
 let webhookDeliveryLogs: WebhookDelivery[] = [];
 
@@ -1368,44 +1374,50 @@ app.post('/api/reset-demo', async (req, res) => {
 
     const generateSettlementId = () => `SXP-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random()*10000).toString(16).toUpperCase()}`;
 
-    // 20 APPROVED inside 24h window (5min–18h ago, small amounts $20–$95)
-    // Target: 20 × avg $57.50 ≈ $1,150 in-window → ~57% of $2,000 budget
-    for (let i=0; i<20; i++) seeds.push({
-      amount: r(20,95), merchant: pick(CLEAN), agentId: pick(AGENTS),
+    // 24 APPROVED inside 24h window (some in last 1h, rest 1h–23h ago)
+    // Target: 24 × ~$45–$55 ≈ $1,100–$1,250 in-window → ~55–62% of $2,000 budget
+    for (let i=0; i<6; i++) seeds.push({
+      amount: r(25,75), merchant: pick(CLEAN), agentId: AGENTS[i % AGENTS.length],
       status:'APPROVED', reason:'All policy checks passed',
-      riskScore: r(5,40), createdAt: ago(r(5, 18*60)),
+      riskScore: r(5,35), createdAt: ago(r(2, 55)),
       settlementId: generateSettlementId()
     });
-    // 40 APPROVED outside 24h window (26h–72h ago) — enrich chart/feed, not budget
-    for (let i=0; i<40; i++) seeds.push({
-      amount: r(30,850), merchant: pick(CLEAN), agentId: pick(AGENTS),
+    for (let i=0; i<18; i++) seeds.push({
+      amount: r(25,70), merchant: pick(CLEAN), agentId: AGENTS[i % AGENTS.length],
       status:'APPROVED', reason:'All policy checks passed',
-      riskScore: r(5,45), createdAt: ago(r(WINDOW+120, 72*60)),
+      riskScore: r(5,40), createdAt: ago(r(65, 22*60)),
       settlementId: generateSettlementId()
     });
-    // 20 BLOCKED — tx limit
-    for (let i=0; i<20; i++) { const amt=r(1010,4800); seeds.push({
-      amount: amt, merchant: pick(CLEAN), agentId: pick(AGENTS),
+    // 36 APPROVED in 26h–6d ago (7d window)
+    for (let i=0; i<36; i++) seeds.push({
+      amount: r(30,450), merchant: pick(CLEAN), agentId: AGENTS[i % AGENTS.length],
+      status:'APPROVED', reason:'All policy checks passed',
+      riskScore: r(5,45), createdAt: ago(r(WINDOW+120, 6*24*60)),
+      settlementId: generateSettlementId()
+    });
+    // 16 BLOCKED — tx limit (mostly last 24h, some in 1h)
+    for (let i=0; i<16; i++) { const amt=r(1010,4800); seeds.push({
+      amount: amt, merchant: pick(CLEAN), agentId: AGENTS[i % AGENTS.length],
       status:'BLOCKED', reason:`Exceeds per-transaction limit of $1,000 (attempted $${amt.toLocaleString()})`,
-      riskScore: r(30,65), createdAt: ago(r(5,60*60))
+      riskScore: r(30,65), createdAt: ago(i < 2 ? r(5, 50) : i < 12 ? r(70, 23*60) : r(25*60, 5*24*60))
     }); }
-    // 10 BLOCKED — denylist
-    for (let i=0; i<10; i++) { const m=pick(DENIED); seeds.push({
-      amount: r(50,800), merchant: m, agentId: pick(AGENTS),
+    // 8 BLOCKED — denylist
+    for (let i=0; i<8; i++) { const m=pick(DENIED); seeds.push({
+      amount: r(50,800), merchant: m, agentId: AGENTS[i % AGENTS.length],
       status:'BLOCKED', reason:`Merchant "${m}" is on the denylist`,
-      riskScore: r(70,95), createdAt: ago(r(5,60*60))
+      riskScore: r(70,95), createdAt: ago(i < 1 ? r(10, 45) : i < 6 ? r(70, 23*60) : r(25*60, 5*24*60))
     }); }
-    // 5 BLOCKED — freq cap
-    for (let i=0; i<5; i++) seeds.push({
-      amount: r(20,400), merchant: pick(CLEAN), agentId: pick(AGENTS),
+    // 4 BLOCKED — freq cap
+    for (let i=0; i<4; i++) seeds.push({
+      amount: r(20,400), merchant: pick(CLEAN), agentId: AGENTS[i % AGENTS.length],
       status:'BLOCKED', reason:'Frequency cap exceeded — too many requests in 1s window',
-      riskScore: r(40,75), createdAt: ago(r(5,60*60))
+      riskScore: r(40,75), createdAt: ago(i < 3 ? r(15, 20*60) : r(25*60, 4*24*60))
     });
-    // 15 FLAGGED — high risk score
-    for (let i=0; i<15; i++) { const rs=r(75,92); seeds.push({
-      amount: r(400,950), merchant: pick(CLEAN), agentId: pick(AGENTS),
+    // 12 FLAGGED — high risk score
+    for (let i=0; i<12; i++) { const rs=r(75,92); seeds.push({
+      amount: r(400,950), merchant: pick(CLEAN), agentId: AGENTS[i % AGENTS.length],
       status:'FLAGGED', reason:`Risk score ${rs} exceeds threshold — flagged for review`,
-      riskScore: rs, createdAt: ago(r(5,60*60))
+      riskScore: rs, createdAt: ago(i < 2 ? r(10, 50) : i < 9 ? r(70, 22*60) : r(25*60, 5*24*60))
     }); }
 
     seeds.sort((a,b) => a.createdAt.getTime()-b.createdAt.getTime());
