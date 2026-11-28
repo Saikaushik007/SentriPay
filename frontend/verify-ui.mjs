@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const BASE_URL = 'http://localhost:5173';
-const SCREENSHOT_DIR = path.resolve('..', 'docs', 'ui-polish');
+const SCREENSHOT_DIR = path.resolve('..', 'docs', 'ui-polish-2');
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 const ROUTES = [
