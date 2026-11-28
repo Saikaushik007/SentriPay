@@ -3,23 +3,19 @@
 @tailwind utilities;
 
 :root {
+  --ink: #0F172A;
   --canvas: #F6F7FB;
   --surface: #FFFFFF;
   --border: #E5E7EB;
-  --text-primary: #111827;
-  --text-secondary: #6B7280;
-  --text-disabled: #9CA3AF;
-  --brand: #4F46E5;
-  --brand-hover: #4338CA;
-  --brand-soft: #EEF2FF;
-  --status-approved: #059669;
-  --status-approved-bg: #ECFDF5;
-  --status-blocked: #DC2626;
-  --status-blocked-bg: #FEF2F2;
-  --status-flagged: #D97706;
-  --status-flagged-bg: #FFFBEB;
-  --radius-card: 12px;
-  --radius-control: 8px;
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-disabled: #94A3B8;
+  --brand-from: #4F46E5;
+  --brand-to: #7C3AED;
+  --teal: #14B8A6;
+  --status-approved: #10B981;
+  --status-blocked: #F43F5E;
+  --status-flagged: #F59E0B;
 }
 
 @layer base {
@@ -45,13 +41,32 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-weight: 600;
-    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    color: var(--ink);
   }
 }
 
 .font-mono-num {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-variant-numeric: tabular-nums;
+}
+
+.sp-card-hover {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.sp-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+}
+
+@keyframes sp-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #E5E7EB 25%, #F1F5F9 50%, #E5E7EB 75%);
+  background-size: 200% 100%;
+  animation: sp-shimmer 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

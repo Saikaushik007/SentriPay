@@ -7,6 +7,7 @@ import {
   Card,
   Button,
   StatusBadge,
+  AgentInitials,
   PageHeader,
   Skeleton,
   EmptyState,
@@ -110,6 +111,29 @@ export default function Agents() {
 
       {error && <ErrorState message={error} onRetry={fetchAgents} />}
 
+      {/* Summary KPI strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card interactive className="p-4">
+          <div className="text-xs font-medium text-[#64748B]">Active Agents</div>
+          <div className="text-2xl font-semibold font-mono-num text-[#0F172A] mt-1">
+            {agents.filter(a => a.status === 'ACTIVE').length}
+            <span className="text-sm font-normal text-[#64748B]"> / {agents.length}</span>
+          </div>
+        </Card>
+        <Card interactive className="p-4">
+          <div className="text-xs font-medium text-[#64748B]">Total 24h Spend</div>
+          <div className="text-2xl font-semibold font-mono-num text-[#0F172A] mt-1">
+            {formatCurrency(agents.reduce((s, a) => s + (a.spentToday || 0), 0))}
+          </div>
+        </Card>
+        <Card interactive className="p-4">
+          <div className="text-xs font-medium text-[#64748B]">Combined Daily Budget</div>
+          <div className="text-2xl font-semibold font-mono-num text-[#0F172A] mt-1">
+            {formatCurrency(agents.reduce((s, a) => s + (a.dailyBudget || 0), 0))}
+          </div>
+        </Card>
+      </div>
+
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -143,25 +167,36 @@ export default function Agents() {
                 agents.map(ag => {
                   const pct = ag.dailyBudget > 0 ? Math.min(100, Math.round((ag.spentToday / ag.dailyBudget) * 100)) : 0;
                   return (
-                    <tr key={ag.id} className="hover:bg-[#F9FAFB]">
+                    <tr key={ag.id} className="hover:bg-[#F6F7FB] transition-colors">
                       <td className="py-3 px-4">
-                        <div className="font-medium text-[#111827]">{ag.name}</div>
-                        <div className="text-xs text-[#6B7280] font-mono-num">{ag.id}</div>
+                        <div className="flex items-center gap-2.5">
+                          <AgentInitials agentId={ag.id} name={ag.name} />
+                          <div>
+                            <div className="font-medium text-[#0F172A]">{ag.name}</div>
+                            <div className="text-xs text-[#64748B] font-mono-num">{ag.id}</div>
+                          </div>
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         <StatusBadge status={ag.status} />
                       </td>
                       <td className="py-3 px-4 min-w-[180px]">
-                        <div className="flex items-center justify-between text-xs text-[#6B7280] mb-1 font-mono-num">
+                        <div className="flex items-center justify-between text-xs text-[#64748B] mb-1 font-mono-num">
                           <span>{pct}%</span>
                           <span>{formatCurrency(ag.dailyBudget)}</span>
                         </div>
-                        <div className="h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
+                        <div className="h-2 bg-[#E5E7EB]/70 rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full ${
-                              pct > 85 ? 'bg-[#DC2626]' : pct > 65 ? 'bg-[#D97706]' : 'bg-[#059669]'
-                            }`}
-                            style={{ width: `${pct}%` }}
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${pct}%`,
+                              background:
+                                pct > 85
+                                  ? '#F43F5E'
+                                  : pct > 65
+                                    ? '#F59E0B'
+                                    : 'linear-gradient(90deg, #4F46E5, #7C3AED)',
+                            }}
                           />
                         </div>
                       </td>

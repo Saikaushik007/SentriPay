@@ -6,6 +6,8 @@ import {
   Card,
   Button,
   StatusBadge,
+  AgentInitials,
+  RiskBar,
   PageHeader,
   Skeleton,
   EmptyState,
@@ -136,22 +138,27 @@ export default function Approvals() {
                 </tr>
               ) : (
                 items.map(tx => (
-                  <tr key={tx.id} className="hover:bg-[#F9FAFB]">
-                    <td className="py-3 px-4 text-xs text-[#6B7280] font-mono-num whitespace-nowrap">
+                  <tr key={tx.id} className="bg-[#F59E0B]/[0.05] hover:bg-[#F59E0B]/[0.09] transition-colors">
+                    <td className="py-3 px-4 text-xs text-[#64748B] font-mono-num whitespace-nowrap">
                       {formatDateTime(tx.createdAt)}
                     </td>
-                    <td className="py-3 px-4 font-medium text-[#111827]">{tx.merchant}</td>
-                    <td className="py-3 px-4 text-xs text-[#6B7280] font-mono-num">{tx.agentId}</td>
-                    <td className="py-3 px-4 text-right font-mono-num font-medium text-[#111827]">
+                    <td className="py-3 px-4 font-medium text-[#0F172A]">{tx.merchant}</td>
+                    <td className="py-3 px-4">
+                      <div className="inline-flex items-center gap-2">
+                        <AgentInitials agentId={tx.agentId} />
+                        <span className="text-xs text-[#64748B] font-mono-num">{tx.agentId}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono-num font-semibold text-[#0F172A]">
                       {formatCurrency(tx.amount)}
                     </td>
                     <td className="py-3 px-4">
-                      <StatusBadge status={tx.status} />
-                      <span className="ml-2 text-xs font-mono-num text-[#6B7280]">
-                        {tx.riskScore ?? '—'}/100
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={tx.status} />
+                        <RiskBar score={tx.riskScore} />
+                      </div>
                     </td>
-                    <td className="py-3 px-4 text-xs font-mono-num text-[#6B7280]">
+                    <td className="py-3 px-4 text-xs font-mono-num text-[#64748B]">
                       {tx.amount >= 300 ? '2 approvers' : '1 approver'}
                     </td>
                     <td className="py-3 px-4 text-right">

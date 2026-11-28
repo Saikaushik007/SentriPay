@@ -110,7 +110,7 @@ export default function AgentDetail() {
   const spendChart = Array.from({ length: 24 }, (_, i) => ({ hour: `${String(i).padStart(2,'0')}h`, spend: Math.round((hourMap[i] || 0) * 100) / 100 }));
 
   return (
-    <div style={{ padding: '16px', maxWidth: 1200, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+    <div style={{ padding: '16px', maxWidth: 1200, margin: '0 auto', width: '100%', boxSizing: 'border-box', minWidth: 0, overflowX: 'hidden' }}>
       {/* Back */}
       <button onClick={() => navigate('/agents')} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 24, background: 'none', border: 'none', cursor: 'pointer', color: '#71717A', fontSize: 14, fontWeight: 600 }}>
         <ArrowLeft size={16} /> Back to Agents
@@ -178,10 +178,11 @@ export default function AgentDetail() {
       </div>
 
       {/* Grid: Spend chart + Rule hits */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, marginBottom: 24 }}>
         {/* 24h spend chart */}
-        <div style={{ background: 'white', border: '1px solid #E4E4E7', borderRadius: 20, padding: 20 }}>
+        <div style={{ background: 'white', border: '1px solid #E4E4E7', borderRadius: 20, padding: 20, minWidth: 0 }}>
           <h3 style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: 15, marginBottom: 16 }}>24h Spend by Hour</h3>
+          <div style={{ width: '100%', minWidth: 0 }}>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={spendChart} margin={{ left: -20, right: 0, top: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F4F4F5" />
@@ -191,6 +192,7 @@ export default function AgentDetail() {
               <Bar dataKey="spend" fill="#7C3AED" radius={[4, 4, 0, 0]} opacity={0.85} />
             </BarChart>
           </ResponsiveContainer>
+          </div>
         </div>
         {/* Rule hits */}
         <div style={{ background: 'white', border: '1px solid #E4E4E7', borderRadius: 20, padding: 20 }}>

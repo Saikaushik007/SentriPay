@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  X, CheckCircle2, XCircle, AlertTriangle, ShieldCheck, 
+  X, AlertTriangle, ShieldCheck, 
   Copy, Check, Bot, Store, Code
 } from 'lucide-react';
 
@@ -263,44 +263,48 @@ export default function TransactionDrawer({ transaction, onClose }: TransactionD
                 )}
               </div>
 
-              <div className="space-y-3">
+              <div className="relative pl-6 space-y-3 border-l-2 border-[#E5E7EB] ml-2">
                 {rules.map((rule, idx) => (
                   <div
                     key={idx}
-                    className="p-3.5 rounded-xl border transition-all"
+                    className="relative p-3.5 rounded-[12px] border transition-all"
                     style={{
-                      background: rule.passed ? '#FAFAFA' : '#FFF1F2',
-                      borderColor: rule.passed ? '#E5E7EB' : '#FECDD3'
+                      background: rule.passed ? '#FFFFFF' : 'rgba(244, 63, 94, 0.04)',
+                      borderColor: rule.passed ? '#E5E7EB' : 'rgba(244, 63, 94, 0.25)',
                     }}
                   >
+                    {/* Timeline node */}
+                    <div
+                      className="absolute -left-[33px] top-4 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center"
+                      style={{ background: rule.passed ? '#10B981' : '#F43F5E' }}
+                    >
+                      {rule.passed ? (
+                        <Check size={10} className="text-white" strokeWidth={3} />
+                      ) : (
+                        <X size={10} className="text-white" strokeWidth={3} />
+                      )}
+                    </div>
+
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2.5">
-                        <div className="mt-0.5">
-                          {rule.passed ? (
-                            <CheckCircle2 size={16} className="text-emerald-600" />
-                          ) : (
-                            <XCircle size={16} className="text-rose-600" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-gray-900">{rule.rule}</div>
-                          <div className="text-xs text-gray-600 mt-0.5 leading-snug">{rule.message}</div>
-                        </div>
+                      <div>
+                        <div className="text-xs font-semibold text-[#0F172A]">{rule.rule}</div>
+                        <div className="text-xs text-[#64748B] mt-0.5 leading-snug">{rule.message}</div>
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 uppercase ${
-                        rule.passed ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                      }`}>
+                      <span
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                          rule.passed ? 'bg-[#10B981]/10 text-[#059669]' : 'bg-[#F43F5E]/10 text-[#E11D48]'
+                        }`}
+                      >
                         {rule.passed ? 'Pass' : 'Fail'}
                       </span>
                     </div>
 
-                    {/* Comparison Pill */}
-                    <div className="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between text-[11px] font-mono">
-                      <span className="text-gray-500">
-                        Configured: <strong className="text-gray-700">{rule.limitValue}</strong>
+                    <div className="mt-2.5 pt-2 border-t border-[#E5E7EB]/70 flex items-center justify-between text-xs font-mono-num">
+                      <span className="text-[#64748B]">
+                        Limit: <strong className="text-[#0F172A]">{rule.limitValue}</strong>
                       </span>
-                      <span className={rule.passed ? 'text-emerald-700 font-semibold' : 'text-rose-700 font-bold'}>
-                        Evaluated: {rule.actualValue}
+                      <span className={rule.passed ? 'text-[#059669] font-semibold' : 'text-[#E11D48] font-semibold'}>
+                        Actual: {rule.actualValue}
                       </span>
                     </div>
                   </div>

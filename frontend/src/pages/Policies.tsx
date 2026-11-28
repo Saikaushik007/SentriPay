@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Save, Plus, X, Clock, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, Shield, RotateCcw, Layers } from 'lucide-react';
+import { Settings2, Save, Plus, X, Clock, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, RotateCcw, Layers } from 'lucide-react';
 import PolicySimulator from '../components/PolicySimulator';
 import { apiUrl } from '../lib/api';
 import { useToast } from '../context/ToastContext';
@@ -103,76 +103,91 @@ export default function Policies() {
         </div>
       )}
 
-      {/* ── Hero Banner ─────────────────────────────────────── */}
-      <div
-        className="rounded-3xl p-8 mb-8 relative overflow-hidden text-white"
-        style={{ background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 60%, #6D28D9 100%)', boxShadow: '0 8px 40px -8px rgba(79,70,229,0.45)' }}
-      >
-        <div className="absolute top-0 right-0 w-96 h-96 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle,rgba(255,255,255,0.07) 0%,transparent 70%)', transform: 'translate(30%,-30%)' }} />
-        <div className="absolute bottom-0 right-32 w-64 h-64 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle,rgba(244,114,182,0.15) 0%,transparent 70%)', transform: 'translateY(30%)' }} />
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+      {/* ── Sentinel Header ─────────────────────────────────── */}
+      <div className="mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
           <div>
-            <div className="flex items-center gap-2 text-white/60 text-xs font-mono uppercase tracking-widest mb-3">
-              <Shield size={13} /> Enforcement Engine v2
-            </div>
-            <h1 className="text-3xl font-bold mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>Policy Control Center</h1>
-            <p className="text-sm mb-2" style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', color: 'rgba(255,255,255,0.82)' }}>Calibrated guardrails for the agents you trust.</p>
-            <p className="text-white/70 text-sm max-w-lg leading-relaxed mb-6">
-              Configure the rule-set governing all autonomous agent transactions — spending limits, merchant access control, and risk enforcement.
+            <h1 className="text-[28px] leading-[36px] font-semibold text-[#0F172A] tracking-[-0.02em]">
+              Policies
+            </h1>
+            <p className="text-[14px] leading-[20px] text-[#64748B] mt-0.5">
+              Spending limits, merchant access control, category caps, and risk thresholds.
             </p>
-            {/* Stat pills */}
-            {loading ? (
-              <div className="flex gap-4">
-                {[1,2,3].map(i => (
-                  <div key={i} className="h-16 w-36 rounded-2xl animate-pulse" style={{ background: 'rgba(255,255,255,0.15)' }} />
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {[
-                  { label: 'Per-Tx Limit', value: `$${policies?.maxTxLimit?.toLocaleString()}` },
-                  { label: 'Daily Budget', value: `$${policies?.dailyBudget?.toLocaleString()}` },
-                  { label: 'Risk Threshold', value: `≥ ${policies?.maxRiskScore ?? 80}` },
-                ].map(s => (
-                  <div key={s.label} className="rounded-2xl px-5 py-3"
-                    style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
-                    <div className="font-mono font-bold text-xl">{s.value}</div>
-                    <div className="text-white/60 text-[11px] font-semibold uppercase tracking-wider mt-0.5">{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
-
-          {/* Edit / Save */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {isEditing ? (
               <>
-                <button onClick={() => { setIsEditing(false); setDraft(policies); }}
-                  className="px-5 py-2.5 rounded-full text-sm font-semibold text-white transition-all"
-                  style={{ background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                <button
+                  onClick={() => { setIsEditing(false); setDraft(policies); }}
+                  className="px-4 py-2 rounded-[10px] text-xs font-semibold text-[#0F172A] bg-white border border-[#E5E7EB] hover:bg-[#F8FAFC] transition-colors cursor-pointer"
+                >
                   Discard
                 </button>
-                <button onClick={handleSave} disabled={isSaving}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold transition-all"
-                  style={{ background: 'white', color: '#4F46E5', boxShadow: '0 4px 20px -2px rgba(0,0,0,0.20)' }}>
-                  {isSaving ? <span className="inline-block w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" /> : <Save size={15} />}
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] hover:opacity-95 shadow-sm transition-all cursor-pointer"
+                >
+                  {isSaving ? <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
                   Save Changes
                 </button>
               </>
             ) : (
-              <button onClick={() => { setDraft(policies); setIsEditing(true); }}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-semibold text-white transition-all"
-                style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.20)' }}>
-                <Settings2 size={15} /> Edit Policies
+              <button
+                onClick={() => { setDraft(policies); setIsEditing(true); }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] hover:opacity-95 shadow-sm transition-all cursor-pointer"
+              >
+                <Settings2 size={14} /> Edit Policies
               </button>
             )}
           </div>
         </div>
+
+        {/* Summary KPI strip */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              { label: 'Per-Transaction Limit', value: `$${policies?.maxTxLimit?.toLocaleString()}` },
+              { label: 'Daily Rolling Budget', value: `$${policies?.dailyBudget?.toLocaleString()}` },
+              { label: 'Risk Flag Threshold', value: `≥ ${policies?.maxRiskScore ?? 80}` },
+            ].map(s => (
+              <div key={s.label} className="bg-white border border-[#E5E7EB] rounded-[12px] p-4 sp-card-hover">
+                <div className="text-xs font-medium text-[#64748B]">{s.label}</div>
+                <div className="font-mono-num font-semibold text-2xl text-[#0F172A] mt-1">{s.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Sticky Unsaved Changes bar */}
+      {isEditing && (
+        <div className="sticky bottom-4 z-30 mb-6 bg-[#0F172A] text-white px-5 py-3 rounded-[12px] shadow-xl flex items-center justify-between gap-4 border border-slate-800">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <span className="w-2 h-2 rounded-full bg-[#F59E0B] animate-pulse" />
+            Editing active policy rules — unsaved changes
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setIsEditing(false); setDraft(policies); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              Discard
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] cursor-pointer"
+            >
+              <Save size={13} /> Save Changes
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Two-column body ─────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">

@@ -52,6 +52,8 @@ export default function App() {
 
 function AppInner() {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const location = useLocation();
+  const isLanding = location.pathname === '/';
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -71,6 +73,16 @@ function AppInner() {
       console.error(e);
     }
   }, []);
+
+  if (isLanding) {
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <ErrorBoundary label="Landing">
+          <LandingPage />
+        </ErrorBoundary>
+      </Suspense>
+    );
+  }
 
   return (
     <>

@@ -7,6 +7,8 @@ import {
   Card,
   Button,
   StatusBadge,
+  AgentInitials,
+  RiskBar,
   PageHeader,
   Skeleton,
   EmptyState,
@@ -271,39 +273,54 @@ export default function Transactions() {
                   </td>
                 </tr>
               ) : (
-                paged.map(tx => (
-                  <tr
-                    key={tx.id}
-                    onClick={() => setSelectedTx(tx)}
-                    className="hover:bg-[#F9FAFB] cursor-pointer transition-colors"
-                  >
-                    <td className="py-2.5 px-4 text-xs text-[#6B7280] font-mono-num whitespace-nowrap">
-                      {formatDateTime(tx.createdAt)}
-                    </td>
-                    <td className="py-2.5 px-4 font-medium text-[#111827]">{tx.merchant}</td>
-                    <td className="py-2.5 px-4 text-xs text-[#6B7280] font-mono-num">{tx.agentId}</td>
-                    <td className="py-2.5 px-4 text-right font-mono-num font-medium text-[#111827]">
-                      {formatCurrency(tx.amount)}
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <StatusBadge status={tx.status} />
-                    </td>
-                    <td className="py-2.5 px-4 text-xs font-mono-num text-[#6B7280]">{tx.riskScore ?? '—'}</td>
-                    <td className="py-2.5 px-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={e => {
-                          e.stopPropagation();
-                          setSelectedTx(tx);
-                        }}
-                      >
-                        Inspect
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                paged.map(tx => {
+                  const rowTint =
+                    tx.status === 'FLAGGED'
+                      ? 'bg-[#F59E0B]/[0.04] hover:bg-[#F59E0B]/[0.08]'
+                      : tx.status === 'BLOCKED'
+                        ? 'bg-[#F43F5E]/[0.03] hover:bg-[#F43F5E]/[0.06]'
+                        : 'hover:bg-[#F6F7FB]';
+                  return (
+                    <tr
+                      key={tx.id}
+                      onClick={() => setSelectedTx(tx)}
+                      className={`${rowTint} cursor-pointer transition-colors`}
+                    >
+                      <td className="py-3 px-4 text-xs text-[#64748B] font-mono-num whitespace-nowrap">
+                        {formatDateTime(tx.createdAt)}
+                      </td>
+                      <td className="py-3 px-4 font-medium text-[#0F172A]">{tx.merchant}</td>
+                      <td className="py-3 px-4">
+                        <div className="inline-flex items-center gap-2">
+                          <AgentInitials agentId={tx.agentId} />
+                          <span className="text-xs text-[#64748B] font-mono-num">{tx.agentId}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono-num font-semibold text-[#0F172A]">
+                        {formatCurrency(tx.amount)}
+                      </td>
+                      <td className="py-3 px-4">
+                        <StatusBadge status={tx.status} />
+                      </td>
+                      <td className="py-3 px-4">
+                        <RiskBar score={tx.riskScore} />
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setSelectedTx(tx);
+                          }}
+                        >
+                          Inspect
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

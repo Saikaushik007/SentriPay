@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const BASE_URL = 'http://localhost:5173';
-const SCREENSHOT_DIR = path.resolve('..', 'docs', 'redesign-screenshots');
+const SCREENSHOT_DIR = path.resolve('..', 'docs', 'ui-polish');
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 const ROUTES = [
@@ -166,25 +166,52 @@ await page.getByRole('button', { name: /Save Changes/i }).first().click();
 await page.waitForTimeout(500);
 
 // Simulator: approved case ($45) & blocked case ($1500)
-const simAmount = page.locator('input[placeholder*="Amount"], input[type="number"]').last();
+// PolicySimulator is embedded in /policies - button text is "Test Policy"
 let simApproved = false;
 let simBlocked = false;
-const simBtn = page.getByRole('button', { name: /Simulate|Run Simulation/i }).first();
+let simApprovedDetail = null;
+let simBlockedDetail = null;
+// Reload policies page fresh
+await page.goto(`${BASE_URL}/policies`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+const simBtn = page.getByRole('button', { name: /Test Policy/i }).first();
+const simAmountInput = page.locator('input[type="number"][min="0.01"]').first();
+const simMerchantInput = page.locator('input[placeholder*="AWS Compute"]').first();
 if (await simBtn.isVisible().catch(() => false)) {
-  await simAmount.fill('45');
+  // Test approved case: small amount, known good merchant
+  if (await simMerchantInput.isVisible().catch(() => false)) {
+    await simMerchantInput.fill('AWS Compute');
+  }
+  await simAmountInput.fill('45');
   await simBtn.click();
-  await page.waitForTimeout(500);
-  simApproved = await page.getByText(/APPROVED|Would be approved/i).first().isVisible().catch(() => false);
-  await simAmount.fill('1500');
+  await page.waitForTimeout(1000);
+  const approvedText = await page.getByText(/Would Be Approved|Nothing Executed/i).first().isVisible().catch(() => false);
+  const approvedStatus = await page.getByText(/APPROVED/i).first().isVisible().catch(() => false);
+  simApproved = approvedText || approvedStatus;
+  simApprovedDetail = {
+    banner: await page.getByText(/Would Be Approved/i).first().textContent().catch(() => null),
+    rulesPassed: await page.getByText(/of \d+ rules passed/i).first().textContent().catch(() => null),
+  };
+
+  // Test blocked case: amount over per-tx limit
+  await simAmountInput.fill('9999');
   await simBtn.click();
-  await page.waitForTimeout(500);
-  simBlocked = await page.getByText(/BLOCKED|Exceeds/i).first().isVisible().catch(() => false);
+  await page.waitForTimeout(1000);
+  const blockedText = await page.getByText(/Would Be Blocked/i).first().isVisible().catch(() => false);
+  const blockedStatus = await page.getByText(/BLOCKED/i).first().isVisible().catch(() => false);
+  simBlocked = blockedText || blockedStatus;
+  simBlockedDetail = {
+    banner: await page.getByText(/Would Be Blocked/i).first().textContent().catch(() => null),
+    rulesPassed: await page.getByText(/of \d+ rules passed/i).first().textContent().catch(() => null),
+  };
 }
 actions.editPolicyAndSimulator = {
   persisted: persistedLimit === '1250',
   restoredTo: originalLimit || '1000',
   simApproved,
   simBlocked,
+  simApprovedDetail,
+  simBlockedDetail,
 };
 
 // Action 7: Add and remove a webhook on /alerts

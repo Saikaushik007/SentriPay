@@ -43,13 +43,15 @@ export default function Analytics() {
         description={`Deep-dive telemetry, risk heatmaps, and spend forecasts (${timeRange} window)`}
       />
 
-      <div className="inline-flex flex-wrap gap-1 bg-white border border-[#E5E7EB] p-1 rounded-[10px]">
+      <div className="inline-flex flex-wrap gap-1 bg-white border border-[#E5E7EB] p-1 rounded-[12px]">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-[8px] transition-colors ${
-              tab === t.id ? 'bg-[#EEF2FF] text-[#4F46E5]' : 'text-[#6B7280] hover:text-[#111827]'
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-[9px] transition-all cursor-pointer ${
+              tab === t.id
+                ? 'bg-[#0F172A] text-white shadow-sm'
+                : 'text-[#64748B] hover:text-[#0F172A] hover:bg-[#F6F7FB]'
             }`}
           >
             {t.label}

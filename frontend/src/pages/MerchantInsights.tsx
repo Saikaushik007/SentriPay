@@ -123,17 +123,29 @@ export default function MerchantInsights() {
                 </tr>
               ) : (
                 merchants.map(m => (
-                  <tr key={m.merchant} className="hover:bg-[#F9FAFB]">
-                    <td className="py-3 px-4 font-medium text-[#111827]">{m.merchant}</td>
-                    <td className="py-3 px-4 text-right font-mono-num font-medium text-[#111827]">
+                  <tr key={m.merchant} className="hover:bg-[#F6F7FB] transition-colors">
+                    <td className="py-3 px-4 font-medium text-[#0F172A]">{m.merchant}</td>
+                    <td className="py-3 px-4 text-right font-mono-num font-semibold text-[#0F172A]">
                       {formatCurrency(m.totalSpend)}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono-num text-[#6B7280]">{m.total}</td>
-                    <td className="py-3 px-4 text-right font-mono-num text-[#059669]">{m.approved}</td>
-                    <td className="py-3 px-4 text-right font-mono-num text-[#DC2626]">{m.blocked}</td>
+                    <td className="py-3 px-4 text-right font-mono-num text-[#64748B]">{m.total}</td>
+                    <td className="py-3 px-4 text-right font-mono-num">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#10B981]/10 text-[#059669]">
+                        {m.approved}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono-num">
+                      {m.blocked > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-[#F43F5E]/10 text-[#E11D48]">
+                          {m.blocked}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[#94A3B8]">0</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-right">
                       <Button variant="secondary" size="sm" onClick={() => addToDenylist(m.merchant)}>
-                        <Ban className="w-3.5 h-3.5 text-[#DC2626]" />
+                        <Ban className="w-3.5 h-3.5 text-[#F43F5E]" />
                         Add to denylist
                       </Button>
                     </td>
