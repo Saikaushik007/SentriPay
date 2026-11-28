@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Settings2, Save, Plus, X, Clock, ToggleLeft, ToggleRight, Sliders, ShieldCheck, ShieldX, Lock, RotateCcw, Layers } from 'lucide-react';
+import { Settings2, Save, Plus, X, Clock, Sliders, Lock, Layers } from 'lucide-react';
 import PolicySimulator from '../components/PolicySimulator';
 import { apiUrl } from '../lib/api';
 import { useToast } from '../context/ToastContext';
+import { Card, Button, PageHeader, Skeleton, ErrorState } from '../components/ui/primitives';
 
 type PolicyConfig = {
   id: string;
@@ -17,10 +17,6 @@ type PolicyConfig = {
   updatedAt: string;
 };
 type HistoryEntry = { id: string; action: string; detail: string; createdAt: string };
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`skeleton-shimmer rounded-2xl ${className}`} />;
-}
 
 export default function Policies() {
   const [policies, setPolicies] = useState<PolicyConfig | null>(null);
@@ -45,16 +41,22 @@ export default function Policies() {
       fetch(apiUrl('/api/policies/history')).then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
+      }),
+    ])
+      .then(([pol, hist]) => {
+        setPolicies(pol);
+        setDraft(pol);
+        setHistory(Array.isArray(hist) ? hist : []);
       })
-    ]).then(([pol, hist]) => {
-      setPolicies(pol); setDraft(pol); setHistory(hist);
-    }).catch(err => {
-      console.error(err);
-      setError(err?.message || 'Failed to load policies');
-    }).finally(() => setLoading(false));
+      .catch(err => {
+        setError(err?.message || 'Failed to load policies');
+      })
+      .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+  }, []);
 
   const handleSave = async () => {
     if (!draft) return;
@@ -71,109 +73,81 @@ export default function Policies() {
           allowlist: draft.allowlist,
           maxRiskScore: draft.maxRiskScore,
           categoryCaps: draft.categoryCaps ?? {},
-        })
+        }),
       });
       if (!res.ok) throw new Error(`Failed to save policy (HTTP ${res.status})`);
       const updated = await res.json();
-      setPolicies(updated); setDraft(updated);
+      setPolicies(updated);
+      setDraft(updated);
       setIsEditing(false);
-      toast.success('Policy Saved', 'Guardrails persisted to Postgres and synced via WebSocket.');
-      fetch(apiUrl('/api/policies/history')).then(r => r.json()).then(setHistory).catch(console.error);
+      toast.success('Policy Saved', 'Guardrails persisted and synced.');
+      fetch(apiUrl('/api/policies/history'))
+        .then(r => r.json())
+        .then(h => setHistory(Array.isArray(h) ? h : []))
+        .catch(() => {});
     } catch (e: any) {
-      console.error(e);
       toast.error('Save Failed', e?.message || 'Could not update policy');
+    } finally {
+      setIsSaving(false);
     }
-    finally { setIsSaving(false); }
   };
 
   const d = isEditing ? draft : policies;
   const allowMode = isEditing ? draft?.allowlistMode : policies?.allowlistMode;
 
   return (
-    <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full">
-      {error && (
-        <div className="mb-6 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 flex items-center justify-between">
-          <div className="text-sm font-semibold">{error}</div>
-          <button
-            onClick={loadAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors"
-          >
-            <RotateCcw size={12} /> Retry
-          </button>
-        </div>
-      )}
-
-      {/* ── Sentinel Header ─────────────────────────────────── */}
-      <div className="mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-          <div>
-            <h1 className="text-[28px] leading-[36px] font-semibold text-[#0F172A] tracking-[-0.02em]">
-              Policies
-            </h1>
-            <p className="text-[14px] leading-[20px] text-[#64748B] mt-0.5">
-              Spending limits, merchant access control, category caps, and risk thresholds.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {isEditing ? (
-              <>
-                <button
-                  onClick={() => { setIsEditing(false); setDraft(policies); }}
-                  className="px-4 py-2 rounded-[10px] text-xs font-semibold text-[#0F172A] bg-white border border-[#E5E7EB] hover:bg-[#F8FAFC] transition-colors cursor-pointer"
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] hover:opacity-95 shadow-sm transition-all cursor-pointer"
-                >
-                  {isSaving ? <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={14} />}
-                  Save Changes
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => { setDraft(policies); setIsEditing(true); }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-[10px] text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] hover:opacity-95 shadow-sm transition-all cursor-pointer"
+    <div className="space-y-6 max-w-[1400px]">
+      <PageHeader
+        title="Policies"
+        description="Spending limits, merchant access control, category caps, and risk thresholds"
+        actions={
+          isEditing ? (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setIsEditing(false);
+                  setDraft(policies);
+                }}
               >
-                <Settings2 size={14} /> Edit Policies
-              </button>
-            )}
-          </div>
-        </div>
+                Discard
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleSave} disabled={isSaving}>
+                <Save className="w-3.5 h-3.5" />
+                {isSaving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setDraft(policies);
+                setIsEditing(true);
+              }}
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              Edit Policies
+            </Button>
+          )
+        }
+      />
 
-        {/* Summary KPI strip */}
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[
-              { label: 'Per-Transaction Limit', value: `$${policies?.maxTxLimit?.toLocaleString()}` },
-              { label: 'Daily Rolling Budget', value: `$${policies?.dailyBudget?.toLocaleString()}` },
-              { label: 'Risk Flag Threshold', value: `≥ ${policies?.maxRiskScore ?? 80}` },
-            ].map(s => (
-              <div key={s.label} className="bg-white border border-[#E5E7EB] rounded-[12px] p-4 sp-card-hover">
-                <div className="text-xs font-medium text-[#64748B]">{s.label}</div>
-                <div className="font-mono-num font-semibold text-2xl text-[#0F172A] mt-1">{s.value}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {error && <ErrorState message={error} onRetry={loadAll} />}
 
-      {/* Sticky Unsaved Changes bar */}
       {isEditing && (
-        <div className="sticky bottom-4 z-30 mb-6 bg-[#0F172A] text-white px-5 py-3 rounded-[12px] shadow-xl flex items-center justify-between gap-4 border border-slate-800">
+        <div className="sticky bottom-4 z-30 bg-[#0F172A] text-white px-5 py-3 rounded-[12px] shadow-lg flex items-center justify-between gap-4 border border-slate-800">
           <div className="flex items-center gap-2 text-xs font-medium">
             <span className="w-2 h-2 rounded-full bg-[#F59E0B] animate-pulse" />
             Editing active policy rules — unsaved changes
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setIsEditing(false); setDraft(policies); }}
+              onClick={() => {
+                setIsEditing(false);
+                setDraft(policies);
+              }}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             >
               Discard
@@ -181,7 +155,7 @@ export default function Policies() {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] cursor-pointer"
             >
               <Save size={13} /> Save Changes
             </button>
@@ -189,396 +163,367 @@ export default function Policies() {
         </div>
       )}
 
-      {/* ── Two-column body ─────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-
-        {/* Left: Core Logic Rules */}
-        <div>
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#EEF2FF', color: '#4F46E5', boxShadow: '0 2px 10px -2px rgba(79,70,229,0.3)' }}>
-              <Sliders size={16} />
-            </div>
-            <h2 className="font-bold text-xl" style={{ fontFamily: 'Outfit, sans-serif' }}>Core Logic Rules</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Core Logic Rules */}
+        <Card className="space-y-5">
+          <div className="flex items-center gap-2.5 pb-3 border-b border-[#E5E7EB]">
+            <Sliders className="w-4 h-4 text-[#4F46E5]" />
+            <h2 className="text-[16px] font-semibold text-[#0F172A]">Core Logic Rules</h2>
           </div>
-          <div className="space-y-4">
-            {loading ? (
-              [1,2,3,4].map(i => <Skeleton key={i} className="h-32" />)
-            ) : (
-              <>
-                <RuleCard
-                  title="Per-Transaction Limit"
-                  desc="Transactions above this amount are instantly blocked."
-                  value={d?.maxTxLimit ?? 1000} min={100} max={10000} step={100}
-                  prefix="$" accentColor="#4F46E5" editing={isEditing}
-                  gradient="linear-gradient(90deg, #4F46E5, #7C3AED)"
-                  wash="rgba(79,70,229,0.03)" shadowColor="rgba(79,70,229,0.15)"
-                  onChange={v => draft && setDraft({ ...draft, maxTxLimit: v })}
-                />
-                <RuleCard
-                  title="Daily Budget (24h Rolling)"
-                  desc="Blocks spend exceeding this in any 24h window."
-                  value={d?.dailyBudget ?? 2000} min={100} max={10000} step={100}
-                  prefix="$" suffix="/day" accentColor="#7C3AED" editing={isEditing}
-                  gradient="linear-gradient(90deg, #7C3AED, #DB2777)"
-                  wash="rgba(124,58,237,0.03)" shadowColor="rgba(124,58,237,0.15)"
-                  onChange={v => draft && setDraft({ ...draft, dailyBudget: v })}
-                />
-                <RuleCard
-                  title="Max Risk Score Threshold"
-                  desc="Flags transactions at or above this risk score."
-                  value={d?.maxRiskScore ?? 80} min={30} max={100} step={5}
-                  accentColor="#F59E0B" editing={isEditing} isRisk
-                  gradient="linear-gradient(90deg, #F59E0B, #EA580C)"
-                  wash="rgba(245,158,11,0.03)" shadowColor="rgba(245,158,11,0.15)"
-                  onChange={v => draft && setDraft({ ...draft, maxRiskScore: v })}
-                />
-                {/* Category Spend Caps */}
-                <div className="rounded-2xl p-5 relative overflow-hidden transition-all duration-300"
-                  style={{
-                    background: 'rgba(99,102,241,0.03)',
-                    border: '1px solid #E4E4E7',
-                    boxShadow: '0 4px 16px -4px rgba(99,102,241,0.15)',
-                    borderLeft: '4px solid #6366F1'
-                  }}>
-                  <div className="flex items-start justify-between ml-2 mb-3">
-                    <div className="flex-1 mr-4">
-                      <div className="flex items-center gap-2">
-                        <div className="font-bold text-sm text-gray-900">Merchant Category Caps</div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
-                          style={{ background: '#EEF2FF', color: '#4F46E5' }}>Rule 5b</span>
+
+          {loading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map(i => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <RuleRow
+                title="Per-Transaction Limit"
+                desc="Transactions above this amount are instantly blocked."
+                value={d?.maxTxLimit ?? 1000}
+                min={100}
+                max={10000}
+                step={50}
+                prefix="$"
+                editing={isEditing}
+                onChange={v => draft && setDraft({ ...draft, maxTxLimit: v })}
+              />
+              <RuleRow
+                title="Daily Budget (24h Rolling)"
+                desc="Blocks spend exceeding this in any 24h window."
+                value={d?.dailyBudget ?? 2000}
+                min={100}
+                max={10000}
+                step={100}
+                prefix="$"
+                editing={isEditing}
+                onChange={v => draft && setDraft({ ...draft, dailyBudget: v })}
+              />
+              <RuleRow
+                title="Max Risk Score Threshold"
+                desc="Flags transactions at or above this risk score."
+                value={d?.maxRiskScore ?? 80}
+                min={30}
+                max={100}
+                step={5}
+                editing={isEditing}
+                onChange={v => draft && setDraft({ ...draft, maxRiskScore: v })}
+              />
+
+              {/* Category Caps */}
+              <div className="pt-4 border-t border-[#E5E7EB]">
+                <div className="flex items-center gap-2 mb-3">
+                  <Layers className="w-4 h-4 text-[#64748B]" />
+                  <div className="text-sm font-semibold text-[#0F172A]">Merchant Category Caps (24h)</div>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    'Cloud Infrastructure',
+                    'AI & LLM Services',
+                    'Communications',
+                    'DevOps & Tooling',
+                  ].map(cat => {
+                    const currentVal = (isEditing ? draft?.categoryCaps : policies?.categoryCaps)?.[cat];
+                    const hasCap = currentVal !== undefined && currentVal > 0;
+                    return (
+                      <div
+                        key={cat}
+                        className="flex items-center justify-between py-2 px-3 rounded-[8px] border border-[#E5E7EB] bg-white text-xs"
+                      >
+                        <span className="font-medium text-[#0F172A]">{cat}</span>
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[#64748B] font-mono-num">$</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step={50}
+                              placeholder="No Cap"
+                              value={currentVal ?? ''}
+                              onChange={e => {
+                                if (!draft) return;
+                                const num = parseFloat(e.target.value);
+                                const updatedCaps = { ...(draft.categoryCaps || {}) };
+                                if (isNaN(num) || num <= 0) delete updatedCaps[cat];
+                                else updatedCaps[cat] = num;
+                                setDraft({ ...draft, categoryCaps: updatedCaps });
+                              }}
+                              className="w-24 h-7 px-2 border border-[#E5E7EB] rounded-[6px] text-xs font-mono-num text-right text-[#0F172A]"
+                            />
+                          </div>
+                        ) : (
+                          <span className="font-mono-num text-xs text-[#64748B]">
+                            {hasCap ? `$${currentVal.toLocaleString()}/24h` : 'No Cap'}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-xs text-gray-500 mt-1 leading-snug">
-                        24-hour rolling spend caps segregated by merchant category.
-                      </div>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#EEF2FF', color: '#6366F1' }}>
-                      <Layers size={16} />
-                    </div>
-                  </div>
-
-                  <div className="ml-2 space-y-2.5 pt-2">
-                    {[
-                      { key: 'Cloud Infrastructure', defaultVal: 1500, label: 'Cloud Infrastructure (AWS, Vercel, Cloudflare)' },
-                      { key: 'AI & LLM Services', defaultVal: 800, label: 'AI & LLM Services (OpenAI, Anthropic)' },
-                      { key: 'Communications', defaultVal: 400, label: 'Communications (SendGrid, Twilio)' },
-                      { key: 'DevOps & Tooling', defaultVal: 600, label: 'DevOps & Tooling (GitHub, Datadog)' }
-                    ].map(cat => {
-                      const currentVal = (isEditing ? draft?.categoryCaps : policies?.categoryCaps)?.[cat.key];
-                      const hasCap = currentVal !== undefined && currentVal > 0;
-                      return (
-                        <div key={cat.key} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-gray-100 text-xs">
-                          <span className="font-medium text-gray-700 truncate max-w-[210px] sm:max-w-xs">{cat.key}</span>
-                          {isEditing ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-gray-400 font-mono">$</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={50}
-                                placeholder="None"
-                                value={currentVal ?? ''}
-                                onChange={e => {
-                                  if (!draft) return;
-                                  const num = parseFloat(e.target.value);
-                                  const updatedCaps = { ...(draft.categoryCaps || {}) };
-                                  if (isNaN(num) || num <= 0) {
-                                    delete updatedCaps[cat.key];
-                                  } else {
-                                    updatedCaps[cat.key] = num;
-                                  }
-                                  setDraft({ ...draft, categoryCaps: updatedCaps });
-                                }}
-                                className="w-20 px-2 py-1 border rounded-lg text-xs font-mono font-bold text-gray-900 text-right outline-none focus:border-indigo-500"
-                              />
-                            </div>
-                          ) : (
-                            <span className="font-mono font-bold px-2.5 py-0.5 rounded-md"
-                              style={{
-                                background: hasCap ? '#EEF2FF' : '#F4F4F5',
-                                color: hasCap ? '#4F46E5' : '#71717A'
-                              }}>
-                              {hasCap ? `$${currentVal.toLocaleString()}/24h` : 'No Cap'}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                    );
+                  })}
                 </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Merchant Access Control */}
-        <div>
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#FFF7ED', color: '#EA580C', boxShadow: '0 2px 10px -2px rgba(234,88,12,0.3)' }}>
-              <Lock size={16} />
-            </div>
-            <h2 className="font-bold text-xl" style={{ fontFamily: 'Outfit, sans-serif' }}>Merchant Access Control</h2>
-          </div>
-          <div className="space-y-4">
-
-            {/* Allowlist Card */}
-            <div className="rounded-2xl overflow-hidden"
-              style={{ background: 'rgba(16,185,129,0.03)', border: '1px solid #E4E4E7', boxShadow: '0 4px 16px -4px rgba(16,185,129,0.15)', borderLeft: '4px solid #10B981' }}>
-              <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#E4E4E7' }}>
-                <div className="flex items-center gap-3 ml-2">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#D1FAE5', color: '#10B981' }}>
-                    <ShieldCheck size={16} />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm">Strict Allowlist Mode</div>
-                    <div className="text-xs text-gray-400 mt-0.5">Only these merchants are permitted</div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => isEditing && draft && setDraft({ ...draft, allowlistMode: !draft.allowlistMode })}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all"
-                  style={{
-                    background: allowMode ? 'linear-gradient(135deg,#10B981,#34D399)' : '#F4F4F5',
-                    color: allowMode ? 'white' : '#71717A',
-                    boxShadow: allowMode ? '0 4px 14px -2px rgba(16,185,129,0.35)' : 'none',
-                    cursor: isEditing ? 'pointer' : 'default',
-                  }}
-                >
-                  {allowMode ? <><ToggleRight size={14} /> ON</> : <><ToggleLeft size={14} /> OFF</>}
-                </button>
-              </div>
-              <div className="p-5 min-h-[140px]">
-                {allowMode ? (
-                  <>
-                    {isEditing && (
-                      <form onSubmit={e => {
-                        e.preventDefault();
-                        if (newAllowMerchant.trim() && draft && !draft.allowlist.includes(newAllowMerchant.trim())) {
-                          setDraft({ ...draft, allowlist: [...draft.allowlist, newAllowMerchant.trim()] });
-                          setNewAllowMerchant('');
-                        }
-                      }} className="flex gap-2 mb-4">
-                        <input type="text" placeholder="Add merchant to allowlist..." value={newAllowMerchant}
-                          onChange={e => setNewAllowMerchant(e.target.value)}
-                          className="flex-1 bg-white border rounded-xl text-sm px-4 py-2 outline-none font-mono transition-all"
-                          style={{ borderColor: '#E4E4E7' }}
-                          onFocus={e => (e.target.style.borderColor = '#10B981')}
-                          onBlur={e => (e.target.style.borderColor = '#E4E4E7')} />
-                        <button type="submit" className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all"
-                          style={{ background: 'linear-gradient(135deg,#10B981,#34D399)', boxShadow: '0 4px 14px -2px rgba(16,185,129,0.4)' }}>
-                          <Plus size={15} /> Add
-                        </button>
-                      </form>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      {(isEditing ? draft?.allowlist : policies?.allowlist)?.length === 0 ? (
-                        <p className="text-sm text-gray-400 italic w-full text-center py-4">No merchants allowed — all will be blocked!</p>
-                      ) : (isEditing ? draft?.allowlist : policies?.allowlist)?.map(m => (
-                        <span key={m} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold text-white"
-                          style={{ background: 'linear-gradient(135deg,#10B981,#34D399)', boxShadow: '0 2px 8px -2px rgba(16,185,129,0.35)' }}>
-                          {m}
-                          {isEditing && (
-                            <button onClick={() => draft && setDraft({ ...draft, allowlist: draft.allowlist.filter(x => x !== m) })}
-                              className="hover:opacity-70 transition-opacity"><X size={11} /></button>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-gray-400 italic py-4">
-                    Allowlist disabled — Denylist mode is active.
-                  </div>
-                )}
               </div>
             </div>
+          )}
+        </Card>
 
-            {/* Denylist Card */}
-            <div className="rounded-2xl overflow-hidden transition-opacity"
-              style={{
-                background: 'rgba(244,63,94,0.03)',
-                border: '1px solid #E4E4E7', boxShadow: '0 4px 16px -4px rgba(244,63,94,0.15)',
-                borderLeft: '4px solid #F43F5E',
-                opacity: allowMode ? 0.5 : 1,
-              }}>
-              <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#E4E4E7' }}>
-                <div className="flex items-center gap-3 ml-2">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#FFE4E6', color: '#F43F5E' }}>
-                    <ShieldX size={16} />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm">Global Denylist</div>
-                    <div className="text-xs text-gray-400 mt-0.5">Always block these merchants</div>
-                  </div>
-                </div>
-                <span className="font-mono text-xs font-bold px-3 py-1.5 rounded-lg" style={{ background: 'linear-gradient(135deg, rgba(244,63,94,0.15), rgba(244,114,182,0.15))', color: '#E11D48', border: '1px solid rgba(244,63,94,0.2)' }}>
-                  {(isEditing ? draft?.denylist.length : policies?.denylist.length)} blocked
-                </span>
+        {/* Merchant Access Control */}
+        <Card className="space-y-5">
+          <div className="flex items-center gap-2.5 pb-3 border-b border-[#E5E7EB]">
+            <Lock className="w-4 h-4 text-[#4F46E5]" />
+            <h2 className="text-[16px] font-semibold text-[#0F172A]">Merchant Access Control</h2>
+          </div>
+
+          {/* Allowlist */}
+          <div className="space-y-3 pb-4 border-b border-[#E5E7EB]">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-[#0F172A]">Strict Allowlist Mode</div>
+                <div className="text-xs text-[#64748B]">Only listed merchants are permitted</div>
               </div>
-              <div className="p-5 min-h-[140px]">
-                {isEditing && !allowMode && (
-                  <form onSubmit={e => {
-                    e.preventDefault();
-                    if (newDenyMerchant.trim() && draft && !draft.denylist.includes(newDenyMerchant.trim())) {
-                      setDraft({ ...draft, denylist: [...draft.denylist, newDenyMerchant.trim()] });
-                      setNewDenyMerchant('');
-                    }
-                  }} className="flex gap-2 mb-4">
-                    <input type="text" placeholder="Add blocked merchant..." value={newDenyMerchant}
-                      onChange={e => setNewDenyMerchant(e.target.value)}
-                      className="flex-1 bg-white border rounded-xl text-sm px-4 py-2 outline-none font-mono transition-all"
-                      style={{ borderColor: '#E4E4E7' }}
-                      onFocus={e => (e.target.style.borderColor = '#F43F5E')}
-                      onBlur={e => (e.target.style.borderColor = '#E4E4E7')} />
-                    <button type="submit" className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
-                      style={{ background: '#18181B' }}>
-                      <Plus size={15} /> Add
-                    </button>
+              <button
+                type="button"
+                onClick={() => isEditing && draft && setDraft({ ...draft, allowlistMode: !draft.allowlistMode })}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  allowMode
+                    ? 'bg-[#10B981]/10 text-[#059669] border-[#10B981]/30'
+                    : 'bg-[#F8FAFC] text-[#64748B] border-[#E5E7EB]'
+                } ${isEditing ? 'cursor-pointer' : 'cursor-default'}`}
+              >
+                {allowMode ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            {allowMode ? (
+              <div className="space-y-2.5">
+                {isEditing && (
+                  <form
+                    onSubmit={e => {
+                      e.preventDefault();
+                      if (newAllowMerchant.trim() && draft && !draft.allowlist.includes(newAllowMerchant.trim())) {
+                        setDraft({ ...draft, allowlist: [...draft.allowlist, newAllowMerchant.trim()] });
+                        setNewAllowMerchant('');
+                      }
+                    }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      type="text"
+                      placeholder="Add merchant to allowlist..."
+                      value={newAllowMerchant}
+                      onChange={e => setNewAllowMerchant(e.target.value)}
+                      className="flex-1 h-8 px-3 rounded-[8px] border border-[#E5E7EB] text-xs font-mono-num"
+                    />
+                    <Button type="submit" variant="secondary" size="sm">
+                      <Plus className="w-3.5 h-3.5" /> Add
+                    </Button>
                   </form>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {(isEditing ? draft?.denylist : policies?.denylist)?.length === 0 ? (
-                    <p className="text-sm text-gray-400 italic w-full text-center py-4">No merchants on the denylist.</p>
-                  ) : (isEditing ? draft?.denylist : policies?.denylist)?.map(m => (
-                    <span key={m} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-mono font-bold text-white shadow-lg"
-                      style={{ background: 'linear-gradient(135deg,#F43F5E,#F472B6)', boxShadow: '0 4px 12px -2px rgba(244,63,94,0.4)' }}>
-                      {m}
-                      {isEditing && !allowMode && (
-                        <button onClick={() => draft && setDraft({ ...draft, denylist: draft.denylist.filter(x => x !== m) })}
-                          className="hover:opacity-70 transition-opacity"><X size={11} /></button>
-                      )}
-                    </span>
-                  ))}
+                  {(isEditing ? draft?.allowlist : policies?.allowlist)?.length === 0 ? (
+                    <span className="text-xs text-[#64748B]">No merchants allowed — all will be blocked.</span>
+                  ) : (
+                    (isEditing ? draft?.allowlist : policies?.allowlist)?.map(m => (
+                      <span
+                        key={m}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] text-xs font-mono-num bg-[#F8FAFC] border border-[#E5E7EB] text-[#0F172A]"
+                      >
+                        {m}
+                        {isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => draft && setDraft({ ...draft, allowlist: draft.allowlist.filter(x => x !== m) })}
+                            className="text-[#64748B] hover:text-[#0F172A]"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </span>
+                    ))
+                  )}
                 </div>
               </div>
+            ) : (
+              <p className="text-xs text-[#64748B]">Allowlist disabled — Global Denylist mode is active.</p>
+            )}
+          </div>
+
+          {/* Denylist */}
+          <div className={`space-y-3 ${allowMode ? 'opacity-50' : ''}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-[#0F172A]">Global Denylist</div>
+                <div className="text-xs text-[#64748B]">Always block these merchants</div>
+              </div>
+              <span className="text-xs font-mono-num text-[#64748B]">
+                {(isEditing ? draft?.denylist.length : policies?.denylist.length) ?? 0} blocked
+              </span>
             </div>
 
+            {isEditing && !allowMode && (
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  if (newDenyMerchant.trim() && draft && !draft.denylist.includes(newDenyMerchant.trim())) {
+                    setDraft({ ...draft, denylist: [...draft.denylist, newDenyMerchant.trim()] });
+                    setNewDenyMerchant('');
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  placeholder="Add blocked merchant..."
+                  value={newDenyMerchant}
+                  onChange={e => setNewDenyMerchant(e.target.value)}
+                  className="flex-1 h-8 px-3 rounded-[8px] border border-[#E5E7EB] text-xs font-mono-num"
+                />
+                <Button type="submit" variant="secondary" size="sm">
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </Button>
+              </form>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {(isEditing ? draft?.denylist : policies?.denylist)?.length === 0 ? (
+                <span className="text-xs text-[#64748B]">No merchants on the denylist.</span>
+              ) : (
+                (isEditing ? draft?.denylist : policies?.denylist)?.map(m => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] text-xs font-mono-num bg-[#F8FAFC] border border-[#E5E7EB] text-[#0F172A]"
+                  >
+                    {m}
+                    {isEditing && !allowMode && (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${m}`}
+                        onClick={() => draft && setDraft({ ...draft, denylist: draft.denylist.filter(x => x !== m) })}
+                        className="text-[#64748B] hover:text-[#F43F5E]"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </span>
+                ))
+              )}
+            </div>
           </div>
-        </div>
+        </Card>
       </div>
 
-      {/* ── Policy Simulator Panel ───────────────────────────── */}
+      {/* Policy Simulator */}
       <PolicySimulator />
 
-      {/* ── Audit Trail Timeline ─────────────────────────────── */}
-       <div className="rounded-3xl overflow-hidden mb-12"
-         style={{ background: 'linear-gradient(135deg,#F5F3FF,#FFFFFF)', border: '1px solid #DDD6FE', boxShadow: '0 12px 30px -18px rgba(124,58,237,.32)' }}>
-        <div className="p-6 border-b flex items-center gap-3" style={{ borderColor: '#E4E4E7', background: '#FAFAFA' }}>
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#F4F4F5', color: '#71717A' }}>
-            <Clock size={20} />
-          </div>
+      {/* Audit Trail */}
+      <Card>
+        <div className="flex items-center gap-2.5 pb-3 mb-4 border-b border-[#E5E7EB]">
+          <Clock className="w-4 h-4 text-[#64748B]" />
           <div>
-            <h2 className="font-bold text-xl" style={{ fontFamily: 'Outfit, sans-serif' }}>Audit Trail</h2>
-            <p className="text-sm text-gray-400 mt-0.5">Immutable log of every policy modification</p>
+            <h2 className="text-[16px] font-semibold text-[#0F172A]">Audit Trail</h2>
+            <p className="text-xs text-[#64748B]">Immutable log of policy modifications</p>
           </div>
         </div>
-
-        <div className="p-8">
-          {loading ? (
-            <div className="space-y-5">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-20 max-w-3xl" />)}
-            </div>
-          ) : history.length === 0 ? (
-            <div className="flex flex-col items-center py-14 text-gray-400">
-              <Clock size={32} className="opacity-20 mb-3" />
-              <p className="text-sm font-medium">No changes recorded yet</p>
-            </div>
-          ) : (
-            <div className="relative pl-7 space-y-8" style={{ borderLeft: '2px solid #E4E4E7' }}>
-              {history.map((h, i) => (
-                <motion.div key={h.id}
-                  initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                  className="relative">
-                  {/* Timeline dot */}
-                  <div className="absolute -left-[35px] top-2 w-4 h-4 rounded-full border-[3px] border-white"
-                    style={{
-                      background: h.action === 'DEMO_RESET' ? '#F59E0B' : '#4F46E5',
-                      boxShadow: h.action === 'DEMO_RESET' ? '0 0 0 3px rgba(245,158,11,0.2)' : '0 0 0 3px rgba(79,70,229,0.2)'
-                    }} />
-
-                  <div className="bg-white rounded-2xl p-5 max-w-4xl transition-all"
-                    style={{ border: '1px solid #E4E4E7', boxShadow: '0 1px 8px -2px rgba(0,0,0,0.06)' }}>
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg"
-                          style={{
-                            background: h.action === 'DEMO_RESET' ? '#FEF3C7' : '#EEF2FF',
-                            color: h.action === 'DEMO_RESET' ? '#D97706' : '#4F46E5',
-                          }}>
-                          {h.action}
-                        </span>
-                        <span className="text-xs font-semibold text-gray-400">SYSTEM</span>
-                      </div>
-                      <span className="text-xs font-mono text-gray-400">
-                        {new Date(h.createdAt).toLocaleString(undefined, {
-                          month: 'short', day: 'numeric', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit', second: '2-digit'
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-sm leading-relaxed" style={{ color: '#18181B' }}>{h.detail}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+        {loading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : history.length === 0 ? (
+          <p className="text-xs text-[#64748B] py-6 text-center">No changes recorded yet.</p>
+        ) : (
+          <div className="divide-y divide-[#E5E7EB]">
+            {history.map(h => (
+              <div key={h.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="px-2 py-0.5 rounded bg-[#F1F5F9] text-[#0F172A] font-mono-num font-semibold shrink-0">
+                    {h.action}
+                  </span>
+                  <span className="text-[#0F172A] truncate">{h.detail}</span>
+                </div>
+                <span className="font-mono-num text-[#64748B] shrink-0">
+                  {new Date(h.createdAt).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
 
-// ── RuleCard ────────────────────────────────────────────────────────────────
-function RuleCard({ title, desc, value, min, max, step, prefix = '', suffix = '', accentColor, editing, isRisk, onChange, gradient, wash, shadowColor }: {
-  title: string; desc: string; value: number; min: number; max: number; step: number;
-  prefix?: string; suffix?: string; accentColor: string; editing: boolean; isRisk?: boolean;
-  gradient: string; wash: string; shadowColor: string;
+function RuleRow({
+  title,
+  desc,
+  value,
+  min,
+  max,
+  step,
+  prefix = '',
+  editing,
+  onChange,
+}: {
+  title: string;
+  desc: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  prefix?: string;
+  editing: boolean;
   onChange: (v: number) => void;
 }) {
-  const pct = ((value - min) / (max - min)) * 100;
-  const valColor = isRisk
-    ? value < 60 ? '#10B981' : value < 80 ? '#F59E0B' : '#F43F5E'
-    : accentColor;
-
   return (
-    <div className="rounded-2xl p-5 relative overflow-hidden transition-all duration-300"
-      style={{
-        background: wash,
-        border: '1px solid #E4E4E7',
-        boxShadow: `0 4px 16px -4px ${shadowColor}`,
-        borderLeft: `4px solid ${accentColor}`
-      }}>
-      <div className="flex items-start justify-between ml-2 mb-4">
-        <div className="flex-1 mr-4">
-          <div className="font-bold text-sm text-gray-900">{title}</div>
-          <div className="text-xs text-gray-500 mt-1 leading-snug">{desc}</div>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <div className="text-sm font-medium text-[#0F172A]">{title}</div>
+          <div className="text-xs text-[#64748B]">{desc}</div>
         </div>
-        <div className="font-mono font-bold text-xl px-4 py-2 rounded-xl flex-shrink-0 shadow-sm"
-          style={{ background: wash, color: valColor, border: `1px solid ${shadowColor}` }}>
-          {prefix}{value.toLocaleString()}{suffix}
-        </div>
+        {editing ? (
+          <div className="flex items-center gap-1 shrink-0">
+            {prefix && <span className="text-xs font-mono-num text-[#64748B]">{prefix}</span>}
+            <input
+              type="number"
+              min={min}
+              max={max}
+              step={step}
+              value={value}
+              onChange={e => {
+                const n = parseInt(e.target.value, 10);
+                if (!Number.isNaN(n)) onChange(n);
+              }}
+              className="w-24 h-8 px-2.5 border border-[#E5E7EB] rounded-[8px] text-sm font-mono-num font-semibold text-right text-[#0F172A]"
+            />
+          </div>
+        ) : (
+          <div className="text-sm font-mono-num font-semibold text-[#0F172A] shrink-0">
+            {prefix}
+            {value.toLocaleString()}
+          </div>
+        )}
       </div>
 
-      {editing ? (
-        <div className="ml-2 p-4 rounded-xl space-y-3" style={{ background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(0,0,0,0.05)' }}>
-          <div className="relative h-2 rounded-full overflow-hidden w-full" style={{ background: '#E4E4E7' }}>
-            <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${pct}%`, background: gradient }} />
-            <input type="range" min={min} max={max} step={step} value={value}
-              onChange={e => onChange(parseInt(e.target.value))}
-              className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer" />
-          </div>
-          <div className="flex justify-between text-[11px] font-mono font-semibold text-gray-400">
-            <span>{prefix}{min.toLocaleString()}</span>
-            <span>{prefix}{max.toLocaleString()}</span>
-          </div>
+      <div className="space-y-1">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          disabled={!editing}
+          onChange={e => onChange(parseInt(e.target.value, 10))}
+          className="w-full accent-[#4F46E5] cursor-pointer disabled:opacity-60 disabled:cursor-default"
+        />
+        <div className="flex justify-between text-[11px] font-mono-num text-[#64748B]">
+          <span>
+            {prefix}
+            {min.toLocaleString()}
+          </span>
+          <span>
+            {prefix}
+            {max.toLocaleString()}
+          </span>
         </div>
-      ) : (
-        <div className="ml-2">
-          <div className="h-2.5 rounded-full overflow-hidden" style={{ background: '#E4E4E7' }}>
-            <div className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${accentColor}, ${accentColor}99)` }} />
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
