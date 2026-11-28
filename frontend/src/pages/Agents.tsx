@@ -27,7 +27,21 @@ type AgentRow = {
   total: number;
   blocked: number;
   flagged: number;
+  sparkline?: number[];
 };
+
+function MiniSparkline({ data }: { data?: number[] }) {
+  if (!data || data.length < 2) return <span className="text-xs text-[#94A3B8]">—</span>;
+  const max = Math.max(...data, 1);
+  const w = 56;
+  const h = 18;
+  const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * h}`).join(' ');
+  return (
+    <svg width={w} height={h} className="overflow-visible inline-block" aria-hidden="true">
+      <polyline points={pts} fill="none" stroke="#4F46E5" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export default function Agents() {
   const toast = useToast();
@@ -148,7 +162,9 @@ export default function Agents() {
                 <th className="py-2.5 px-4 text-right" title="Approved decisions ÷ all decisions in the selected window">
                   Approval Rate ({timeRange})
                 </th>
-                <th className="py-2.5 px-4 text-right">Blocks / Flags</th>
+                <th className="py-2.5 px-4 text-right">Blocks</th>
+                <th className="py-2.5 px-4 text-right">Flags</th>
+                <th className="py-2.5 px-4 text-center">Activity ({timeRange})</th>
                 <th className="py-2.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -210,8 +226,14 @@ export default function Agents() {
                       <td className="py-3 px-4 text-right font-mono-num text-[#111827]">
                         {ag.approvalRate}%
                       </td>
-                      <td className="py-3 px-4 text-right font-mono-num text-xs text-[#6B7280]">
-                        {ag.blocked} / {ag.flagged}
+                      <td className="py-3 px-4 text-right font-mono-num text-xs text-[#E11D48] font-medium">
+                        {ag.blocked}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono-num text-xs text-[#D97706] font-medium">
+                        {ag.flagged}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <MiniSparkline data={ag.sparkline} />
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1.5">

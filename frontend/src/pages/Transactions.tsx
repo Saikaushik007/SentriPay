@@ -15,7 +15,7 @@ import {
   ErrorState,
 } from '../components/ui/primitives';
 import TransactionDrawer from '../components/TransactionDrawer';
-import { formatCurrency, formatDateTime } from '../lib/utils';
+import { formatCurrency, formatDateTime, formatRelativeTime } from '../lib/utils';
 
 type Transaction = {
   id: string;
@@ -187,13 +187,6 @@ export default function Transactions() {
           </select>
 
           <input
-            value={merchantFilter}
-            onChange={e => updateParam('merchant', e.target.value)}
-            placeholder="Merchant…"
-            className="h-8 px-2.5 text-xs rounded-[8px] border border-[#E5E7EB] bg-white text-[#111827] w-36"
-          />
-
-          <input
             type="number"
             value={minAmount}
             onChange={e => updateParam('min', e.target.value)}
@@ -251,6 +244,7 @@ export default function Transactions() {
                   </button>
                 </th>
                 <th className="py-2.5 px-4">Risk</th>
+                <th className="py-2.5 px-4">Reason</th>
                 <th className="py-2.5 px-4 text-right">Details</th>
               </tr>
             </thead>
@@ -286,8 +280,8 @@ export default function Transactions() {
                       onClick={() => setSelectedTx(tx)}
                       className={`${rowTint} cursor-pointer transition-colors`}
                     >
-                      <td className="py-3 px-4 text-xs text-[#64748B] font-mono-num whitespace-nowrap">
-                        {formatDateTime(tx.createdAt)}
+                      <td className="py-3 px-4 text-xs text-[#64748B] font-mono-num whitespace-nowrap" title={formatDateTime(tx.createdAt)}>
+                        {formatRelativeTime(tx.createdAt)}
                       </td>
                       <td className="py-3 px-4 font-medium text-[#0F172A]">{tx.merchant}</td>
                       <td className="py-3 px-4">
@@ -304,6 +298,9 @@ export default function Transactions() {
                       </td>
                       <td className="py-3 px-4">
                         <RiskBar score={tx.riskScore} />
+                      </td>
+                      <td className="py-3 px-4 text-xs text-[#64748B] max-w-[200px] truncate" title={tx.reason}>
+                        {tx.reason || '—'}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <Button
