@@ -78,19 +78,6 @@ function SentriPayLogoMark({ className = 'w-7 h-7' }: { className?: string }) {
   );
 }
 
-const ROUTE_TITLES: Record<string, string> = {
-  '/dashboard': 'Dashboard',
-  '/transactions': 'Transactions',
-  '/approvals': 'Approvals',
-  '/agents': 'Agents',
-  '/policies': 'Policies',
-  '/merchants': 'Merchants',
-  '/analytics': 'Analytics',
-  '/alerts': 'Alerts',
-  '/integrate': 'Integrate',
-  '/settings': 'Settings',
-};
-
 export default function Layout({ children, onOpenPalette }: LayoutProps) {
   const location = useLocation();
   const toast = useToast();
@@ -104,10 +91,6 @@ export default function Layout({ children, onOpenPalette }: LayoutProps) {
   const [resetting, setResetting] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [recentAlerts, setRecentAlerts] = useState<any[]>([]);
-
-  const pageTitle =
-    ROUTE_TITLES[location.pathname] ||
-    (location.pathname.startsWith('/agents/') ? 'Agent Detail' : 'SentriPay');
 
   const fetchPending = async () => {
     try {
@@ -299,10 +282,6 @@ export default function Layout({ children, onOpenPalette }: LayoutProps) {
             >
               <Menu className="w-4 h-4" />
             </button>
-
-            <span className="hidden md:inline-block text-sm font-semibold text-[#0F172A] truncate">
-              {pageTitle}
-            </span>
 
             <button
               onClick={onOpenPalette}

@@ -1,8 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ComposedChart,
-  Area,
+  BarChart,
   Bar,
   XAxis,
   YAxis,
@@ -54,7 +53,15 @@ type Transaction = {
   createdAt?: string;
 };
 
-type ChartPoint = { time: string; approved: number; blocked: number; flagged: number };
+type ChartPoint = {
+  time: string;
+  approved: number;
+  blocked: number;
+  flagged: number;
+  approvedAmount?: number;
+  blockedAmount?: number;
+  flaggedAmount?: number;
+};
 type BudgetInfo = { spent: number; limit: number };
 type StatsData = {
   total: number;
@@ -64,6 +71,18 @@ type StatsData = {
   approvalRate: number;
   totalSpend: number;
   range: string;
+  deltas?: {
+    totalPct: number;
+    blockedPct: number;
+    approvalRatePts: number;
+    totalSpendPct: number;
+  };
+  sparklines?: {
+    total: number[];
+    blocked: number[];
+    approved: number[];
+    spend: number[];
+  };
 };
 
 function CountUpNumber({
@@ -241,6 +260,7 @@ export default function Dashboard() {
 
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [chartMode, setChartMode] = useState<'count' | 'amount'>('count');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 12;
 
@@ -370,11 +390,19 @@ export default function Dashboard() {
                     <div className="text-[28px] leading-[34px] font-semibold text-[#0F172A] font-mono-num">
                       <CountUpNumber value={stats?.total ?? transactions.length} />
                     </div>
-                    <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-[#10B981]/10 text-[#059669]">
-                      <TrendingUp className="w-3 h-3" /> Live
+                    <span
+                      className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium ${
+                        (stats?.deltas?.totalPct ?? 0) >= 0
+                          ? 'bg-[#10B981]/10 text-[#059669]'
+                          : 'bg-[#F43F5E]/10 text-[#E11D48]'
+                      }`}
+                    >
+                      {(stats?.deltas?.totalPct ?? 0) >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                      {(stats?.deltas?.totalPct ?? 0) >= 0 ? '+' : ''}
+                      {stats?.deltas?.totalPct ?? 0}% vs prev {timeRange}
                     </span>
                   </div>
-                  <Sparkline data={sparkTotal} color="#4F46E5" />
+                  <Sparkline data={stats?.sparklines?.total ?? sparkTotal} color="#4F46E5" />
                 </div>
               </Card>
 
@@ -390,11 +418,19 @@ export default function Dashboard() {
                     <div className="text-[28px] leading-[34px] font-semibold text-[#0F172A] font-mono-num">
                       <CountUpNumber value={stats?.blocked ?? 0} />
                     </div>
-                    <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-[#F43F5E]/10 text-[#E11D48]">
-                      <TrendingDown className="w-3 h-3" /> Stopped
+                    <span
+                      className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium ${
+                        (stats?.deltas?.blockedPct ?? 0) <= 0
+                          ? 'bg-[#10B981]/10 text-[#059669]'
+                          : 'bg-[#F43F5E]/10 text-[#E11D48]'
+                      }`}
+                    >
+                      {(stats?.deltas?.blockedPct ?? 0) <= 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                      {(stats?.deltas?.blockedPct ?? 0) >= 0 ? '+' : ''}
+                      {stats?.deltas?.blockedPct ?? 0}% vs prev {timeRange}
                     </span>
                   </div>
-                  <Sparkline data={sparkBlocked} color="#F43F5E" />
+                  <Sparkline data={stats?.sparklines?.blocked ?? sparkBlocked} color="#F43F5E" />
                 </div>
               </Card>
 
@@ -415,11 +451,19 @@ export default function Dashboard() {
                     <div className="text-[28px] leading-[34px] font-semibold text-[#0F172A] font-mono-num">
                       <CountUpNumber value={stats?.approvalRate ?? 0} decimals={1} suffix="%" />
                     </div>
-                    <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-[#10B981]/10 text-[#059669]">
-                      <TrendingUp className="w-3 h-3" /> {stats?.approved ?? 0} cleared
+                    <span
+                      className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium ${
+                        (stats?.deltas?.approvalRatePts ?? 0) >= 0
+                          ? 'bg-[#10B981]/10 text-[#059669]'
+                          : 'bg-[#F43F5E]/10 text-[#E11D48]'
+                      }`}
+                    >
+                      {(stats?.deltas?.approvalRatePts ?? 0) >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                      {(stats?.deltas?.approvalRatePts ?? 0) >= 0 ? '+' : ''}
+                      {stats?.deltas?.approvalRatePts ?? 0} pts vs prev {timeRange}
                     </span>
                   </div>
-                  <Sparkline data={sparkApproved} color="#10B981" />
+                  <Sparkline data={stats?.sparklines?.approved ?? sparkApproved} color="#10B981" />
                 </div>
               </Card>
 
@@ -435,10 +479,19 @@ export default function Dashboard() {
                     <div className="text-[28px] leading-[34px] font-semibold text-[#0F172A] font-mono-num">
                       <CountUpNumber value={stats?.totalSpend ?? 0} decimals={2} prefix="$" />
                     </div>
-                    <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium bg-[#14B8A6]/10 text-[#0F766E]">
-                      Settled volume
+                    <span
+                      className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-xs font-medium ${
+                        (stats?.deltas?.totalSpendPct ?? 0) >= 0
+                          ? 'bg-[#10B981]/10 text-[#059669]'
+                          : 'bg-[#F43F5E]/10 text-[#E11D48]'
+                      }`}
+                    >
+                      {(stats?.deltas?.totalSpendPct ?? 0) >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                      {(stats?.deltas?.totalSpendPct ?? 0) >= 0 ? '+' : ''}
+                      {stats?.deltas?.totalSpendPct ?? 0}% vs prev {timeRange}
                     </span>
                   </div>
+                  <Sparkline data={stats?.sparklines?.spend ?? []} color="#14B8A6" />
                 </div>
               </Card>
             </>
@@ -482,14 +535,31 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <ErrorBoundary label="Volume chart">
           <Card className="lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
               <div>
                 <h2 className="text-[18px] leading-[24px] font-semibold text-[#0F172A]">
-                  Transaction Volume
+                  Transaction Volume ({timeRange})
                 </h2>
-                <p className="text-xs text-[#64748B]">Approved & blocked area trends with flagged bars</p>
+                <p className="text-xs text-[#64748B]">Hourly buckets by decision status</p>
               </div>
-              <span className="text-xs text-[#64748B] font-mono-num">{chartData.length} points</span>
+              <div className="inline-flex items-center bg-[#F1F5F9] p-0.5 rounded-[8px] border border-[#E5E7EB]">
+                <button
+                  onClick={() => setChartMode('count')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-[6px] transition-colors cursor-pointer ${
+                    chartMode === 'count' ? 'bg-white text-[#4F46E5] shadow-sm' : 'text-[#64748B] hover:text-[#0F172A]'
+                  }`}
+                >
+                  Count
+                </button>
+                <button
+                  onClick={() => setChartMode('amount')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-[6px] transition-colors cursor-pointer ${
+                    chartMode === 'amount' ? 'bg-white text-[#4F46E5] shadow-sm' : 'text-[#64748B] hover:text-[#0F172A]'
+                  }`}
+                >
+                  Amount
+                </button>
+              </div>
             </div>
             {loading ? (
               <Skeleton className="h-60 w-full" />
@@ -501,17 +571,7 @@ export default function Dashboard() {
             ) : (
               <div className="h-60 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="gradApproved" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.28} />
-                        <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="gradBlocked" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.24} />
-                        <stop offset="95%" stopColor="#F43F5E" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                     <XAxis
                       dataKey="time"
@@ -524,7 +584,8 @@ export default function Dashboard() {
                       tick={{ fontSize: 12, fill: '#64748B' }}
                       axisLine={false}
                       tickLine={false}
-                      tickFormatter={v => `$${v}`}
+                      allowDecimals={false}
+                      tickFormatter={v => (chartMode === 'amount' ? `$${v}` : `${v}`)}
                     />
                     <Tooltip
                       contentStyle={{
@@ -532,27 +593,32 @@ export default function Dashboard() {
                         border: '1px solid #E5E7EB',
                         fontSize: 12,
                       }}
-                      formatter={(val: any) => [formatCurrency(Number(val)), undefined]}
+                      formatter={(val: any, name: any) => [
+                        chartMode === 'amount' ? formatCurrency(Number(val)) : `${val} tx`,
+                        name,
+                      ]}
                     />
                     <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                    <Area
-                      type="monotone"
-                      dataKey="approved"
-                      stroke="#10B981"
-                      strokeWidth={2}
-                      fill="url(#gradApproved)"
+                    <Bar
+                      dataKey={chartMode === 'amount' ? 'approvedAmount' : 'approved'}
                       name="Approved"
+                      stackId="a"
+                      fill="#10B981"
                     />
-                    <Area
-                      type="monotone"
-                      dataKey="blocked"
-                      stroke="#F43F5E"
-                      strokeWidth={2}
-                      fill="url(#gradBlocked)"
+                    <Bar
+                      dataKey={chartMode === 'amount' ? 'blockedAmount' : 'blocked'}
                       name="Blocked"
+                      stackId="a"
+                      fill="#F43F5E"
                     />
-                    <Bar dataKey="flagged" fill="#F59E0B" name="Flagged" radius={[4, 4, 0, 0]} barSize={10} />
-                  </ComposedChart>
+                    <Bar
+                      dataKey={chartMode === 'amount' ? 'flaggedAmount' : 'flagged'}
+                      name="Flagged"
+                      stackId="a"
+                      fill="#F59E0B"
+                      radius={[3, 3, 0, 0]}
+                    />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
