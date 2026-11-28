@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Pause, Play, ArrowRight, RefreshCw } from 'lucide-react';
 import { apiUrl, socket } from '../lib/api';
 import { useToast } from '../context/ToastContext';
+import { useTimeRange } from '../context/TimeRangeContext';
 import {
   Card,
   Button,
@@ -30,6 +31,7 @@ type AgentRow = {
 
 export default function Agents() {
   const toast = useToast();
+  const { timeRange } = useTimeRange();
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export default function Agents() {
   const fetchAgents = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(apiUrl('/api/agents'));
+      const res = await fetch(apiUrl(`/api/agents?range=${timeRange}`));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setAgents(Array.isArray(data) ? data : []);
@@ -48,7 +50,7 @@ export default function Agents() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [timeRange]);
 
   useEffect(() => {
     fetchAgents();
@@ -121,8 +123,8 @@ export default function Agents() {
           </div>
         </Card>
         <Card interactive className="p-4">
-          <div className="text-xs font-medium text-[#64748B]">Total 24h Spend</div>
-          <div className="text-2xl font-semibold font-mono-num text-[#0F172A] mt-1">
+          <div className="text-xs font-medium text-[#64748B]">Spend ({timeRange})</div>
+          <div data-testid="agents-total-spend" className="text-2xl font-semibold font-mono-num text-[#0F172A] mt-1">
             {formatCurrency(agents.reduce((s, a) => s + (a.spentToday || 0), 0))}
           </div>
         </Card>
@@ -142,8 +144,10 @@ export default function Agents() {
                 <th className="py-2.5 px-4">Agent</th>
                 <th className="py-2.5 px-4">Status</th>
                 <th className="py-2.5 px-4">Daily Budget Usage</th>
-                <th className="py-2.5 px-4 text-right">24h Spend</th>
-                <th className="py-2.5 px-4 text-right">Approval Rate</th>
+                <th className="py-2.5 px-4 text-right">Spend ({timeRange})</th>
+                <th className="py-2.5 px-4 text-right" title="Approved decisions ÷ all decisions in the selected window">
+                  Approval Rate ({timeRange})
+                </th>
                 <th className="py-2.5 px-4 text-right">Blocks / Flags</th>
                 <th className="py-2.5 px-4 text-right">Actions</th>
               </tr>

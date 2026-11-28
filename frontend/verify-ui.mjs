@@ -224,6 +224,44 @@ await page.getByRole('button', { name: /Remove webhook/i }).first().click();
 await page.waitForTimeout(400);
 actions.addRemoveWebhook = hookVisible;
 
+// Phase 1 Consistency Assertions:
+// 1. Dashboard processed === Transactions count === sum of per-agent transactions
+// 2. Dashboard approval rate === approved / processed
+// 3. Agents 24h spend total === Dashboard 24h spend
+// 4. Approvals badge === Dashboard flagged waiting === Bell count === Approvals page count
+const [stats24h, txs24h, agents24h, reviewQ] = await Promise.all([
+  page.evaluate(() => fetch('http://localhost:3001/api/transactions/stats?range=24h').then(r => r.json())),
+  page.evaluate(() => fetch('http://localhost:3001/api/transactions?range=24h').then(r => r.json())),
+  page.evaluate(() => fetch('http://localhost:3001/api/agents?range=24h').then(r => r.json())),
+  page.evaluate(() => fetch('http://localhost:3001/api/review-queue').then(r => r.json())),
+]);
+const agentTxSum = agents24h.reduce((s, a) => s + a.total, 0);
+const agentSpendSum = Math.round(agents24h.reduce((s, a) => s + a.totalSpend, 0) * 100) / 100;
+const expectedApprovalRate = stats24h.total > 0 ? Math.round((stats24h.approved / stats24h.total) * 1000) / 10 : 0;
+
+await page.goto(`${BASE_URL}/dashboard`, { waitUntil: 'networkidle' });
+const dashFlaggedWaiting = await page.getByTestId('dashboard-flagged-waiting').textContent().catch(() => null);
+const bellCount = await page.getByTestId('notif-bell-count').textContent().catch(() => null);
+
+actions.consistency = {
+  processedMatch: stats24h.total === txs24h.length && stats24h.total === agentTxSum,
+  statsTotal: stats24h.total,
+  txsLength: txs24h.length,
+  agentTxSum,
+  approvalRateMatch: stats24h.approvalRate === expectedApprovalRate,
+  approvalRate: stats24h.approvalRate,
+  expectedApprovalRate,
+  spendMatch: Math.abs(agentSpendSum - stats24h.totalSpend) < 0.02,
+  agentSpendSum,
+  dashSpend: stats24h.totalSpend,
+  flaggedMatch:
+    Number(dashFlaggedWaiting?.trim()) === reviewQ.length &&
+    Number(bellCount?.trim()) === reviewQ.length,
+  reviewQueueLength: reviewQ.length,
+  dashFlaggedWaiting: dashFlaggedWaiting?.trim(),
+  bellCount: bellCount?.trim(),
+};
+
 await browser.close();
 
 console.log(JSON.stringify({ results, drawerVisible, actions }, null, 2));

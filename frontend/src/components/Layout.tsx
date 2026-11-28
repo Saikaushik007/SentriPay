@@ -344,8 +344,11 @@ export default function Layout({ children, onOpenPalette }: LayoutProps) {
               >
                 <Bell className="w-4 h-4" />
                 {pendingCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#F43F5E] text-white text-[11px] font-medium flex items-center justify-center">
-                    {pendingCount > 9 ? '9+' : pendingCount}
+                  <span
+                    data-testid="notif-bell-count"
+                    className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F43F5E] text-white text-[11px] font-medium font-mono-num flex items-center justify-center"
+                  >
+                    {pendingCount}
                   </span>
                 )}
               </button>

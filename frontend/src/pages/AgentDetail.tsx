@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ShieldCheck, ShieldAlert, Pause, Play, DollarSign, Activity, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { apiUrl } from '../lib/api';
+import { useTimeRange } from '../context/TimeRangeContext';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -38,6 +39,7 @@ function TxStatusBadge({ status }: { status: string }) {
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { timeRange } = useTimeRange();
   const [data, setData] = useState<AgentDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +50,7 @@ export default function AgentDetail() {
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(apiUrl(`/api/agents/${id}`));
+      const res = await fetch(apiUrl(`/api/agents/${id}?range=${timeRange}`));
       if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
       const d = await res.json();
       setData(d);
@@ -56,7 +58,7 @@ export default function AgentDetail() {
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); }, [id, timeRange]);
 
   const togglePause = async () => {
     if (!data) return;

@@ -102,9 +102,9 @@ function CountUpNumber({
   const formatted =
     decimals > 0
       ? display.toLocaleString(undefined, {
-          minimumFractionDigits: decimals,
-          maximumFractionDigits: decimals,
-        })
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      })
       : Math.round(display).toLocaleString();
 
   return (
@@ -188,9 +188,8 @@ function AgentInitials({ agentId }: { agentId: string }) {
   return (
     <span className="inline-flex items-center gap-2">
       <span
-        className={`w-6 h-6 rounded-full text-[11px] font-semibold inline-flex items-center justify-center shrink-0 ${
-          palette[short] || 'bg-slate-100 text-slate-700'
-        }`}
+        className={`w-6 h-6 rounded-full text-[11px] font-semibold inline-flex items-center justify-center shrink-0 ${palette[short] || 'bg-slate-100 text-slate-700'
+          }`}
       >
         {short}
       </span>
@@ -234,6 +233,7 @@ export default function Dashboard() {
   const [budget, setBudget] = useState<BudgetInfo | null>(null);
   const [stats, setStats] = useState<StatsData | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
+  const [reviewQueueCount, setReviewQueueCount] = useState<number>(0);
   const [anomalies, setAnomalies] = useState<any[]>([]);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(true);
@@ -252,13 +252,14 @@ export default function Dashboard() {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json();
       };
-      const [txRes, chartRes, budgetRes, statsRes, agentsRes, anomRes] = await Promise.allSettled([
+      const [txRes, chartRes, budgetRes, statsRes, agentsRes, anomRes, reviewRes] = await Promise.allSettled([
         safeJson(apiUrl(`/api/transactions?range=${timeRange}`)),
         safeJson(apiUrl(`/api/transactions/chart?range=${timeRange}`)),
-        safeJson(apiUrl('/api/transactions/budget')),
+        safeJson(apiUrl(`/api/transactions/budget?range=${timeRange}`)),
         safeJson(apiUrl(`/api/transactions/stats?range=${timeRange}`)),
-        safeJson(apiUrl('/api/agents')),
+        safeJson(apiUrl(`/api/agents?range=${timeRange}`)),
         safeJson(apiUrl('/api/anomalies')),
+        safeJson(apiUrl('/api/review-queue')),
       ]);
       if (txRes.status === 'fulfilled' && Array.isArray(txRes.value)) setTransactions(txRes.value);
       if (chartRes.status === 'fulfilled' && Array.isArray(chartRes.value)) setChartData(chartRes.value);
@@ -266,6 +267,7 @@ export default function Dashboard() {
       if (statsRes.status === 'fulfilled') setStats(statsRes.value);
       if (agentsRes.status === 'fulfilled' && Array.isArray(agentsRes.value)) setAgents(agentsRes.value);
       if (anomRes.status === 'fulfilled' && Array.isArray(anomRes.value?.alerts)) setAnomalies(anomRes.value.alerts);
+      if (reviewRes.status === 'fulfilled' && Array.isArray(reviewRes.value)) setReviewQueueCount(reviewRes.value.length);
 
       if (
         txRes.status === 'rejected' &&
@@ -398,7 +400,12 @@ export default function Dashboard() {
 
               <Card className="sp-card-hover">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#64748B]">Approval rate</span>
+                  <span
+                    className="text-xs font-medium text-[#64748B] cursor-help"
+                    title="Approved decisions ÷ all decisions in the selected window"
+                  >
+                    Approval rate ({timeRange})
+                  </span>
                   <span className="w-8 h-8 rounded-[8px] bg-[#10B981]/10 text-[#10B981] flex items-center justify-center">
                     <CheckCircle2 className="w-4 h-4" />
                   </span>
@@ -589,7 +596,7 @@ export default function Dashboard() {
                   <span className="inline-flex items-center gap-2 font-medium">
                     <Clock className="w-3.5 h-3.5" /> Flagged payments waiting
                   </span>
-                  <span className="font-mono-num font-semibold">{stats?.flagged ?? 0}</span>
+                  <span data-testid="dashboard-flagged-waiting" className="font-mono-num font-semibold">{reviewQueueCount}</span>
                 </Link>
 
                 <Link
@@ -648,11 +655,10 @@ export default function Dashboard() {
                       setStatusFilter(s);
                       setPage(1);
                     }}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-[6px] transition-colors ${
-                      statusFilter === s
+                    className={`px-2.5 py-1 text-xs font-medium rounded-[6px] transition-colors ${statusFilter === s
                         ? 'bg-[#4F46E5] text-white'
                         : 'text-[#64748B] hover:text-[#0F172A]'
-                    }`}
+                      }`}
                   >
                     {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
                   </button>

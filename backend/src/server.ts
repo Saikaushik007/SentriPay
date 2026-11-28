@@ -562,29 +562,63 @@ app.get('/api/analytics/spend-forecast', async (req, res) => {
   });
 });
 
-// ─── Time-series chart data ───────────────────────────────────────────────────
+// ─── Time-series chart data (hourly buckets) ─────────────────────────────────
 app.get('/api/transactions/chart', async (req, res) => {
+  const rangeParam = (req.query.range as string) || '24h';
   const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
-  const hours = req.query.range ? rangeMap[String(req.query.range)] : undefined;
-  const since = hours ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined;
+  const hours = rangeMap[rangeParam] || 24;
+  const nowMs = Date.now();
+  const since = new Date(nowMs - hours * 60 * 60 * 1000);
 
-  // Get last 50 transactions ordered oldest-first for charting
   const txs = await prisma.transaction.findMany({
-    ...(since ? { where: { createdAt: { gte: since } } } : {}),
+    where: { createdAt: { gte: since } },
     orderBy: { createdAt: 'asc' },
-    take: 50,
     select: { amount: true, status: true, createdAt: true }
   });
 
-  const data = txs.map((t, i) => ({
-    index: i + 1,
-    time: new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    approved: t.status === 'APPROVED' ? t.amount : 0,
-    blocked: t.status === 'BLOCKED' ? t.amount : 0,
-    flagged: t.status === 'FLAGGED' ? t.amount : 0,
-  }));
+  // Hourly buckets for 24h (24 buckets), 10-min buckets for 1h (6 buckets), 6h buckets or hourly for 7d (28 x 6h or 24h)
+  // User requested "hourly buckets" — for 24h that's 24 hourly buckets; for 1h it's 6x10m (or 1h); for 7d it's hourly buckets grouped into 6h or hourly (let's use 1h for 24h, 1h for 1h, 1h for 7d -> 24/6/28 or hourly)
+  const bucketCount = rangeParam === '1h' ? 6 : rangeParam === '24h' ? 24 : 28;
+  const bucketMs = (hours * 60 * 60 * 1000) / bucketCount;
 
-  return res.json(data);
+  const buckets = Array.from({ length: bucketCount }, (_, i) => {
+    const bucketDate = new Date(since.getTime() + (i + 1) * bucketMs);
+    const label =
+      rangeParam === '7d'
+        ? bucketDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+          ' ' +
+          bucketDate.toLocaleTimeString([], { hour: '2-digit', hour12: false }) + 'h'
+        : bucketDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return {
+      time: label,
+      approved: 0,
+      blocked: 0,
+      flagged: 0,
+      approvedAmount: 0,
+      blockedAmount: 0,
+      flaggedAmount: 0,
+    };
+  });
+
+  for (const t of txs) {
+    const idx = Math.min(
+      bucketCount - 1,
+      Math.max(0, Math.floor((t.createdAt.getTime() - since.getTime()) / bucketMs))
+    );
+    const b = buckets[idx];
+    if (t.status === 'APPROVED') {
+      b.approved += 1;
+      b.approvedAmount = Math.round((b.approvedAmount + t.amount) * 100) / 100;
+    } else if (t.status === 'BLOCKED') {
+      b.blocked += 1;
+      b.blockedAmount = Math.round((b.blockedAmount + t.amount) * 100) / 100;
+    } else if (t.status === 'FLAGGED') {
+      b.flagged += 1;
+      b.flaggedAmount = Math.round((b.flaggedAmount + t.amount) * 100) / 100;
+    }
+  }
+
+  return res.json(buckets);
 });
 
 // ─── Per-merchant breakdown ───────────────────────────────────────────────────
@@ -612,15 +646,19 @@ app.get('/api/transactions/merchants', async (req, res) => {
 
 // ─── Budget consumption ───────────────────────────────────────────────────────
 app.get('/api/transactions/budget', async (req, res) => {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const rangeParam = (req.query.range as string) || '24h';
+  const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+  const hours = rangeMap[rangeParam] || 24;
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
   const agg = await prisma.transaction.aggregate({
     _sum: { amount: true },
     where: { status: 'APPROVED', createdAt: { gte: since } }
   });
   const config = await prisma.policyConfig.findFirst();
   return res.json({
-    spent: agg._sum.amount || 0,
-    limit: config?.dailyBudget || 500
+    spent: Math.round((agg._sum.amount || 0) * 100) / 100,
+    limit: config?.dailyBudget || 500,
+    range: rangeParam
   });
 });
 
@@ -1015,18 +1053,37 @@ app.get('/api/agents', async (req, res, next) => {
       dbAgents = await prisma.agent.findMany({ orderBy: { createdAt: 'asc' } });
     }
 
+    const rangeParam = (req.query.range as string) || '24h';
+    const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+    const hours = rangeMap[rangeParam] || 24;
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
     const txs = await prisma.transaction.findMany({
+      where: { createdAt: { gte: since } },
       select: { agentId: true, status: true, amount: true, createdAt: true }
     });
 
     const map: Record<string, {
       agentId: string; total: number; approved: number; blocked: number;
       flagged: number; totalSpend: number; lastSeen: Date;
+      hourlyCounts: number[];
     }> = {};
+
+    const bucketCount = Math.min(hours, 24);
+    const bucketMs = (hours * 60 * 60 * 1000) / bucketCount;
 
     for (const t of txs) {
       if (!map[t.agentId]) {
-        map[t.agentId] = { agentId: t.agentId, total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: t.createdAt };
+        map[t.agentId] = {
+          agentId: t.agentId,
+          total: 0,
+          approved: 0,
+          blocked: 0,
+          flagged: 0,
+          totalSpend: 0,
+          lastSeen: t.createdAt,
+          hourlyCounts: Array(bucketCount).fill(0),
+        };
       }
       const ag = map[t.agentId];
       ag.total++;
@@ -1034,20 +1091,24 @@ app.get('/api/agents', async (req, res, next) => {
       if (t.status === 'BLOCKED') ag.blocked++;
       if (t.status === 'FLAGGED') ag.flagged++;
       if (t.createdAt > ag.lastSeen) ag.lastSeen = t.createdAt;
-    }
-
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recent24hTxs = await prisma.transaction.findMany({
-      where: { status: 'APPROVED', createdAt: { gte: since } },
-      select: { agentId: true, amount: true }
-    });
-    const spentTodayMap: Record<string, number> = {};
-    for (const t of recent24hTxs) {
-      spentTodayMap[t.agentId] = (spentTodayMap[t.agentId] || 0) + t.amount;
+      const idx = Math.min(
+        bucketCount - 1,
+        Math.max(0, Math.floor((t.createdAt.getTime() - since.getTime()) / bucketMs))
+      );
+      ag.hourlyCounts[idx]++;
     }
 
     const agents = dbAgents.map(ag => {
-      const stats = map[ag.id] || { total: 0, approved: 0, blocked: 0, flagged: 0, totalSpend: 0, lastSeen: ag.createdAt };
+      const stats = map[ag.id] || {
+        total: 0,
+        approved: 0,
+        blocked: 0,
+        flagged: 0,
+        totalSpend: 0,
+        lastSeen: ag.createdAt,
+        hourlyCounts: Array(bucketCount).fill(0),
+      };
+      const roundedSpend = Math.round(stats.totalSpend * 100) / 100;
       return {
         id: ag.id,
         agentId: ag.id,
@@ -1055,15 +1116,17 @@ app.get('/api/agents', async (req, res, next) => {
         description: ag.description,
         status: ag.status,
         dailyBudget: ag.dailyBudget,
-        apiKey: ag.apiKey || `sk_live_${ag.id.replace(/-/g, '_')}`,
-        spentToday: Math.round((spentTodayMap[ag.id] || 0) * 100) / 100,
+        apiKey: ag.apiKey || `sp_key_${ag.id.replace(/-/g, '_')}`,
+        spentToday: roundedSpend,
         total: stats.total,
         approved: stats.approved,
         blocked: stats.blocked,
         flagged: stats.flagged,
-        totalSpend: Math.round(stats.totalSpend * 100) / 100,
-        approvalRate: stats.total > 0 ? ((stats.approved / stats.total) * 100).toFixed(1) : '0.0',
-        lastSeen: stats.lastSeen
+        totalSpend: roundedSpend,
+        approvalRate: stats.total > 0 ? (Math.round((stats.approved / stats.total) * 1000) / 10).toFixed(1) : '0.0',
+        lastSeen: stats.lastSeen,
+        sparkline: stats.hourlyCounts,
+        range: rangeParam,
       };
     });
 
@@ -1157,21 +1220,81 @@ app.get('/api/transactions/stats', async (req, res, next) => {
     const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
     const hours = rangeMap[rangeParam];
     if (!hours) return res.status(400).json({ error: 'range must be 1h, 24h, or 7d' });
-    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-    const txs = await prisma.transaction.findMany({
-      where: { createdAt: { gte: since } },
-      select: { status: true, amount: true, createdAt: true }
+    const nowMs = Date.now();
+    const since = new Date(nowMs - hours * 60 * 60 * 1000);
+    const prevSince = new Date(nowMs - 2 * hours * 60 * 60 * 1000);
+
+    const [txs, prevTxs] = await Promise.all([
+      prisma.transaction.findMany({
+        where: { createdAt: { gte: since } },
+        select: { status: true, amount: true, createdAt: true }
+      }),
+      prisma.transaction.findMany({
+        where: { createdAt: { gte: prevSince, lt: since } },
+        select: { status: true, amount: true }
+      })
+    ]);
+
+    const summarize = (list: { status: string; amount: number }[]) => {
+      const total = list.length;
+      const approved = list.filter(t => t.status === 'APPROVED').length;
+      const blocked = list.filter(t => t.status === 'BLOCKED').length;
+      const flagged = list.filter(t => t.status === 'FLAGGED').length;
+      const totalSpend = Math.round(list.filter(t => t.status === 'APPROVED').reduce((s, t) => s + t.amount, 0) * 100) / 100;
+      const approvalRate = total > 0 ? Math.round((approved / total) * 1000) / 10 : 0;
+      return { total, approved, blocked, flagged, approvalRate, totalSpend };
+    };
+
+    const curr = summarize(txs);
+    const prev = summarize(prevTxs);
+
+    const pctDelta = (c: number, p: number) => {
+      if (p === 0) return c > 0 ? 100 : 0;
+      return Math.round(((c - p) / p) * 1000) / 10;
+    };
+
+    const deltas = {
+      totalPct: pctDelta(curr.total, prev.total),
+      blockedPct: pctDelta(curr.blocked, prev.blocked),
+      approvalRatePts: Math.round((curr.approvalRate - prev.approvalRate) * 10) / 10,
+      totalSpendPct: pctDelta(curr.totalSpend, prev.totalSpend),
+    };
+
+    // Real hourly (or sub-hourly for 1h) buckets for sparklines
+    const bucketCount = rangeParam === '1h' ? 12 : rangeParam === '24h' ? 24 : 28;
+    const bucketMs = (hours * 60 * 60 * 1000) / bucketCount;
+    const sparkTotal = Array(bucketCount).fill(0);
+    const sparkBlocked = Array(bucketCount).fill(0);
+    const sparkApproved = Array(bucketCount).fill(0);
+    const sparkSpend = Array(bucketCount).fill(0);
+
+    for (const t of txs) {
+      const idx = Math.min(
+        bucketCount - 1,
+        Math.max(0, Math.floor((t.createdAt.getTime() - since.getTime()) / bucketMs))
+      );
+      sparkTotal[idx]++;
+      if (t.status === 'BLOCKED') sparkBlocked[idx]++;
+      if (t.status === 'APPROVED') {
+        sparkApproved[idx]++;
+        sparkSpend[idx] = Math.round((sparkSpend[idx] + t.amount) * 100) / 100;
+      }
+    }
+
+    return res.json({
+      ...curr,
+      range: rangeParam,
+      since,
+      previous: prev,
+      deltas,
+      sparklines: {
+        total: sparkTotal,
+        blocked: sparkBlocked,
+        approved: sparkApproved,
+        spend: sparkSpend,
+      },
     });
-
-    const total = txs.length;
-    const approved = txs.filter(t => t.status === 'APPROVED').length;
-    const blocked = txs.filter(t => t.status === 'BLOCKED').length;
-    const flagged = txs.filter(t => t.status === 'FLAGGED').length;
-    const totalSpend = txs.filter(t => t.status === 'APPROVED').reduce((s, t) => s + t.amount, 0);
-    const approvalRate = total > 0 ? Math.round((approved / total) * 1000) / 10 : 0;
-
-    return res.json({ total, approved, blocked, flagged, approvalRate, totalSpend: Math.round(totalSpend * 100) / 100, range: rangeParam, since });
   } catch (err) { next(err); }
 });
 
@@ -1227,16 +1350,19 @@ app.get('/api/agents/:id', async (req, res, next) => {
     const agent = await prisma.agent.findUnique({ where: { id } });
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
 
-    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rangeParam = (req.query.range as string) || '24h';
+    const rangeMap: Record<string, number> = { '1h': 1, '24h': 24, '7d': 168 };
+    const hours = rangeMap[rangeParam] || 24;
+    const sinceRange = new Date(Date.now() - hours * 60 * 60 * 1000);
     const [allTxs, recentTxs] = await Promise.all([
       prisma.transaction.findMany({
-        where: { agentId: id },
+        where: { agentId: id, createdAt: { gte: sinceRange } },
         orderBy: { createdAt: 'desc' },
         take: 100,
         select: { id: true, amount: true, merchant: true, status: true, reason: true, riskScore: true, createdAt: true }
       }),
       prisma.transaction.findMany({
-        where: { agentId: id, createdAt: { gte: since24h } },
+        where: { agentId: id, createdAt: { gte: sinceRange } },
         select: { status: true, amount: true, reason: true }
       })
     ]);
@@ -1348,7 +1474,7 @@ app.post('/api/reset-demo', async (req, res) => {
     await prisma.agent.createMany({ data: defaultAgents });
 
     // 2. Reset policy config (dailyBudget $2,000 — realistic against $1,000 tx limit)
-    const POLICY = { maxTxLimit: 1000, dailyBudget: 2000, denylist: ['DarkWeb Compute', 'ShadyAI Services'] };
+    const POLICY = { maxTxLimit: 1000, dailyBudget: 2000, denylist: ['DarkWeb Compute', 'ShadyAI Services'], categoryCaps: {} };
     const existing = await prisma.policyConfig.findFirst();
     if (existing) {
       await prisma.policyConfig.update({ where: { id: existing.id }, data: POLICY });

@@ -13,7 +13,7 @@ import {
   EmptyState,
   ErrorState,
 } from '../components/ui/primitives';
-import { formatCurrency, formatDateTime } from '../lib/utils';
+import { formatCurrency, formatDateTime, formatRelativeTime } from '../lib/utils';
 
 type ReviewTx = {
   id: string;
@@ -139,8 +139,8 @@ export default function Approvals() {
               ) : (
                 items.map(tx => (
                   <tr key={tx.id} className="bg-[#F59E0B]/[0.05] hover:bg-[#F59E0B]/[0.09] transition-colors">
-                    <td className="py-3 px-4 text-xs text-[#64748B] font-mono-num whitespace-nowrap">
-                      {formatDateTime(tx.createdAt)}
+                    <td className="py-3 px-4 text-xs text-[#64748B] font-mono-num whitespace-nowrap" title={formatDateTime(tx.createdAt)}>
+                      {formatRelativeTime(tx.createdAt)}
                     </td>
                     <td className="py-3 px-4 font-medium text-[#0F172A]">{tx.merchant}</td>
                     <td className="py-3 px-4">
